@@ -3,5 +3,6 @@ project(CoronaFramework)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(compiler_settings)
+include(dependencies)
 
 add_subdirectory(src)
