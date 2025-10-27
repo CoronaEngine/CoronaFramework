@@ -1,6 +1,7 @@
 #include <fast_io.h>
 
 #include <chrono>
+#include <cstdio>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -8,6 +9,26 @@
 #include "corona/kernel/i_logger.h"
 
 namespace Corona::Kernel {
+
+// Helper function to convert log level to string
+static std::string_view level_to_string(LogLevel level) {
+    switch (level) {
+        case LogLevel::trace:
+            return "TRACE";
+        case LogLevel::debug:
+            return "DEBUG";
+        case LogLevel::info:
+            return "INFO ";
+        case LogLevel::warning:
+            return "WARN ";
+        case LogLevel::error:
+            return "ERROR";
+        case LogLevel::fatal:
+            return "FATAL";
+        default:
+            return "UNKNOWN";
+    }
+}
 
 // Console Sink using fast_io
 class ConsoleSink : public ISink {
@@ -32,16 +53,21 @@ class ConsoleSink : public ISink {
         localtime_r(&time_t_now, &tm_buf);
 #endif
 
-        // Use fast_io to format and print - simple approach
-        fast_io::io::print("[",
-                           tm_buf.tm_year + 1900, "-",
-                           tm_buf.tm_mon + 1, "-",
-                           tm_buf.tm_mday, " ",
-                           tm_buf.tm_hour, ":",
-                           tm_buf.tm_min, ":",
-                           tm_buf.tm_sec, ".",
-                           ms.count(),
-                           "] [",
+        // Format time string with fixed width
+        char time_buffer[32];
+        std::snprintf(time_buffer, sizeof(time_buffer),
+                      "[%04d-%02d-%02d %02d:%02d:%02d.%03lld]",
+                      tm_buf.tm_year + 1900,
+                      tm_buf.tm_mon + 1,
+                      tm_buf.tm_mday,
+                      tm_buf.tm_hour,
+                      tm_buf.tm_min,
+                      tm_buf.tm_sec,
+                      static_cast<long long>(ms.count()));
+
+        // Use fast_io to print
+        fast_io::io::print(fast_io::mnp::os_c_str(time_buffer),
+                           " [",
                            level_to_string(msg.level),
                            "] [",
                            fast_io::mnp::os_c_str(msg.location.file_name()), ":",
@@ -115,17 +141,22 @@ class FileSink : public ISink {
         localtime_r(&time_t_now, &tm_buf);
 #endif
 
+        // Format time string with fixed width
+        char time_buffer[32];
+        std::snprintf(time_buffer, sizeof(time_buffer),
+                      "[%04d-%02d-%02d %02d:%02d:%02d.%03lld]",
+                      tm_buf.tm_year + 1900,
+                      tm_buf.tm_mon + 1,
+                      tm_buf.tm_mday,
+                      tm_buf.tm_hour,
+                      tm_buf.tm_min,
+                      tm_buf.tm_sec,
+                      static_cast<long long>(ms.count()));
+
         // Write to file using fast_io
         fast_io::io::print(file_,
-                           "[",
-                           tm_buf.tm_year + 1900, "-",
-                           tm_buf.tm_mon + 1, "-",
-                           tm_buf.tm_mday, " ",
-                           tm_buf.tm_hour, ":",
-                           tm_buf.tm_min, ":",
-                           tm_buf.tm_sec, ".",
-                           ms.count(),
-                           "] [",
+                           fast_io::mnp::os_c_str(time_buffer),
+                           " [",
                            level_to_string(msg.level),
                            "] [",
                            fast_io::mnp::os_c_str(msg.location.file_name()), ":",
