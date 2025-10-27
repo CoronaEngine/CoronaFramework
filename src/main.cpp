@@ -2,6 +2,7 @@
 #include <memory>
 #include <string>
 
+#include "corona/kernel/kernel_context.h"
 #include "corona/pal/i_file_system.h"
 #include "corona/pal/i_window.h"
 
@@ -12,10 +13,18 @@ std::unique_ptr<IWindow> create_window();
 }  // namespace Corona::PAL
 
 int main() {
-    std::cout << "=== Corona Framework Test ===" << std::endl;
+    // Initialize Kernel
+    auto& kernel = Corona::Kernel::KernelContext::instance();
+    if (!kernel.initialize()) {
+        std::cerr << "Failed to initialize kernel" << std::endl;
+        return 1;
+    }
+
+    auto logger = kernel.logger();
+    logger->info("=== Corona Framework Test ===");
 
     // Test 1: File System
-    std::cout << "\n[Test 1] File System Test" << std::endl;
+    logger->info("[Test 1] File System Test");
     auto fs = Corona::PAL::create_file_system();
 
     // Write test
@@ -27,44 +36,51 @@ int main() {
     }
 
     if (fs->write_all_bytes("test.txt", data)) {
-        std::cout << "  ✓ File write successful" << std::endl;
+        logger->info("  ✓ File write successful");
     } else {
-        std::cout << "  ✗ File write failed" << std::endl;
+        logger->error("  ✗ File write failed");
     }
 
     // Exists test
     if (fs->exists("test.txt")) {
-        std::cout << "  ✓ File exists check successful" << std::endl;
+        logger->info("  ✓ File exists check successful");
     } else {
-        std::cout << "  ✗ File exists check failed" << std::endl;
+        logger->error("  ✗ File exists check failed");
     }
 
     // Read test
     auto read_data = fs->read_all_bytes("test.txt");
     if (!read_data.empty()) {
         std::string read_content(reinterpret_cast<const char*>(read_data.data()), read_data.size());
-        std::cout << "  ✓ File read successful: " << read_content << std::endl;
+        logger->info("  ✓ File read successful: " + read_content);
     } else {
-        std::cout << "  ✗ File read failed" << std::endl;
+        logger->error("  ✗ File read failed");
     }
 
-    // Test 2: Window System (commented out for now as it requires user interaction)
-    std::cout << "\n[Test 2] Window System Test" << std::endl;
-    std::cout << "  ℹ Window test skipped (requires GUI)" << std::endl;
+    // Test 2: VFS
+    logger->info("[Test 2] Virtual File System Test");
+    auto vfs = kernel.vfs();
+    vfs->mount("/data/", "./data/");
+    logger->info("  ✓ Mounted /data/ to ./data/");
 
-    /*
-    auto window = Corona::PAL::create_window();
-    if (window->create("Corona Test Window", 800, 600)) {
-        std::cout << "  ✓ Window creation successful" << std::endl;
+    // Test 3: Event Bus
+    logger->info("[Test 3] Event Bus Test");
+    auto event_bus = kernel.event_bus();
 
-        while (window->is_open()) {
-            window->poll_events();
-        }
-    } else {
-        std::cout << "  ✗ Window creation failed" << std::endl;
-    }
-    */
+    struct TestEvent {
+        std::string message;
+    };
 
-    std::cout << "\n=== All tests completed ===" << std::endl;
+    event_bus->subscribe<TestEvent>([logger](const TestEvent& event) {
+        logger->info("  ✓ Event received: " + event.message);
+    });
+
+    event_bus->publish(TestEvent{"Hello from Event Bus!"});
+
+    logger->info("=== All tests completed ===");
+
+    // Shutdown Kernel
+    kernel.shutdown();
+
     return 0;
 }

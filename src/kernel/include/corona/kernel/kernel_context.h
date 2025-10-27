@@ -1,0 +1,45 @@
+#pragma once
+#include <memory>
+
+#include "i_event_bus.h"
+#include "i_logger.h"
+#include "i_plugin_manager.h"
+#include "i_vfs.h"
+
+namespace Corona::Kernel {
+
+class KernelContext {
+   public:
+    static KernelContext& instance();
+
+    // Initialize all kernel services
+    bool initialize();
+
+    // Shutdown all kernel services
+    void shutdown();
+
+    // Service accessors
+    ILogger* logger() const { return logger_.get(); }
+    IEventBus* event_bus() const { return event_bus_.get(); }
+    IVirtualFileSystem* vfs() const { return vfs_.get(); }
+    IPluginManager* plugin_manager() const { return plugin_manager_.get(); }
+
+   private:
+    KernelContext() = default;
+    ~KernelContext() = default;
+
+    // Delete copy and move constructors/operators
+    KernelContext(const KernelContext&) = delete;
+    KernelContext& operator=(const KernelContext&) = delete;
+    KernelContext(KernelContext&&) = delete;
+    KernelContext& operator=(KernelContext&&) = delete;
+
+    std::unique_ptr<ILogger> logger_;
+    std::unique_ptr<IEventBus> event_bus_;
+    std::unique_ptr<IVirtualFileSystem> vfs_;
+    std::unique_ptr<IPluginManager> plugin_manager_;
+
+    bool initialized_ = false;
+};
+
+}  // namespace Corona::Kernel

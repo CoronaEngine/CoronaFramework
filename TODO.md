@@ -33,7 +33,7 @@
     - `src/pal/factory.cpp` (用于创建特定于平台的实例)
 
 ### 4. Kernel - 接口定义
-- **状态:** 未开始
+- **状态:** 已完成
 - **描述:** 根据 `doc/kernel_design.md` 为所有 Kernel 服务接口创建头文件。
 - **要创建的文件:**
     - `src/kernel/include/corona/kernel/i_logger.h`
@@ -43,13 +43,13 @@
     - `src/kernel/include/corona/kernel/kernel_context.h`
 
 ### 5. Kernel - 日志系统实现
-- **状态:** 未开始
-- **描述:** 实现 `Logger` 服务。这将是第一个实现的服务，用于后续开发的调试。它将使用 `fast_io` 库。
+- **状态:** 已完成
+- **描述:** 实现 `Logger` 服务。这将是第一个实现的服务,用于后续开发的调试。它将使用 `fast_io` 库。
 - **要创建的文件:**
     - `src/kernel/src/logger.cpp`
 
 ### 6. Kernel - 其他服务实现
-- **状态:** 未开始
+- **状态:** 已完成
 - **描述:** 实现其余的核心服务。
 - **要创建的文件:**
     - `src/kernel/src/event_bus.cpp`
@@ -57,15 +57,15 @@
     - `src/kernel/src/plugin_manager.cpp`
 
 ### 7. Kernel - 上下文实现
-- **状态:** 未开始
+- **状态:** 已完成
 - **描述:** 实现 `KernelContext` 来管理所有核心服务的生命周期。
 - **要创建的文件:**
     - `src/kernel/src/kernel_context.cpp`
 
 ### 8. 主程序集成
-- **状态:** 未开始
+- **状态:** 已完成
 - **描述:** 修改 `main.cpp` 以初始化 `KernelContext`，并使用新的日志系统打印 "Hello, World!"，而不是 `std::cout`。
 
 ### 9. 构建与验证
-- **状态:** 未开始
+- **状态:** 进行中
 - **描述:** 编译整个项目，运行并验证窗口创建和日志记录功能是否按预期工作。
