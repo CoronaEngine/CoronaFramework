@@ -9,7 +9,7 @@ Corona 引擎是一个以 C++20 为基础构建的现代化、高性能、数据
 *   **高内聚，低耦合**: 系统之间通过清晰的接口进行通信，降低依赖，提高可维护性。
 *   **插件化**: 引擎的核心功能和扩展功能都以插件形式存在，可按需加载、卸载和替换。
 *   **脚本化**: 提供强大的脚本语言支持（如 Lua 或 Python），用于快速原型设计、逻辑编写和热重载。
-*   **现代化 C++**: 全面拥抱 C++20 的新特性（Modules, Concepts, Coroutines, Ranges 等），以提升代码质量、编译速度和运行效率。
+*   **现代化 C++**: 全面拥抱 C++20 的新特性（Concepts, Coroutines, Ranges 等），以提升代码质量和运行效率。
 *   **跨平台**: 设计上考虑多平台支持（Windows, Linux, macOS）。
 
 ---
@@ -75,20 +75,18 @@ Kernel 是引擎的基石，提供最基础的服务，不依赖任何上层模�
 
 ### 5.1 `IPlugin` 接口
 ```cpp
-// 使用 C++20 Modules
-export module Corona.IPlugin;
+// i_plugin.h
+#pragma once
 
-import Corona.Core; // 假设核心类型在此模块
-
-export namespace Corona
+namespace Corona
 {
     class IPlugin
     {
     public:
         virtual ~IPlugin() = default;
-        virtual const char* GetName() const = 0;
-        virtual void Install() = 0;
-        virtual void Uninstall() = 0;
+        virtual const char* get_name() const = 0;
+        virtual void install() = 0;
+        virtual void uninstall() = 0;
     };
 }
 ```
@@ -126,15 +124,15 @@ export namespace Corona
 
 ```cpp
 // 示例：使用协程加载纹理
-export import Corona.Renderer;
+#include "corona/renderer.h"
 
-Task<TextureHandle> LoadTextureAsync(const std::string& path)
+Task<TextureHandle> load_texture_async(const std::string& path)
 {
     // 1. 异步从磁盘读取文件
-    auto fileData = co_await FileSystem::ReadAllBytesAsync(path);
+    auto file_data = co_await FileSystem::read_all_bytes_async(path);
     // 2. 在渲染线程上创建 GPU 资源
-    auto textureHandle = co_await GpuScheduler::CreateTexture(fileData);
-    co_return textureHandle;
+    auto texture_handle = co_await GpuScheduler::create_texture(file_data);
+    co_return texture_handle;
 }
 ```
 
@@ -150,7 +148,7 @@ Task<TextureHandle> LoadTextureAsync(const std::string& path)
 export concept CppExportable = std::is_function_v<T> && ...;
 
 template<CppExportable F>
-void BindFunction(const std::string& name, F func)
+void bind_function(const std::string& name, F func)
 {
     // ... 自动生成绑定代码
 }
@@ -163,9 +161,6 @@ void BindFunction(const std::string& name, F func)
 
 ## 9. C++20 特性应用
 
-*   **Modules**:
-    *   **目的**: 替代传统的头文件（`.h`），解决编译速度慢、宏污染和循环依赖问题。
-    *   **应用**: 整个引擎被划分为多个模块，如 `Corona.Core`, `Corona.Renderer`, `Corona.Physics`。接口通过 `export` 关键字暴露。
 *   **Concepts**:
     *   **目的**: 在编译期对模板参数进行约束，提供更清晰的错误信息和更强的类型检查。
     *   **应用**: 用于泛型算法、ECS 系统和脚本绑定，确保传入的类型符合预期。
