@@ -2,6 +2,7 @@
 #include <memory>
 #include <string>
 
+#include "corona/kernel/i_logger.h"
 #include "corona/kernel/kernel_context.h"
 #include "corona/pal/i_file_system.h"
 #include "corona/pal/i_window.h"
@@ -22,6 +23,15 @@ int main() {
 
     auto logger = kernel.logger();
     logger->info("=== Corona Framework Test ===");
+
+    // Test 0: Logger with multiple sinks
+    logger->info("[Test 0] Logger Sink Test");
+    auto file_sink = Corona::Kernel::create_file_sink("corona.log");
+    logger->add_sink(file_sink);
+    logger->info("  ✓ Added file sink, now logging to both console and file");
+    logger->debug("  This is a debug message");
+    logger->warning("  This is a warning message");
+    logger->error("  This is an error message");
 
     // Test 1: File System
     logger->info("[Test 1] File System Test");

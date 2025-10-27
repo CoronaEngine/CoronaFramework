@@ -1,17 +1,11 @@
 #pragma once
+#include <memory>
 #include <source_location>
 #include <string_view>
 
-namespace Corona::Kernel {
+#include "i_sink.h"
 
-enum class LogLevel {
-    trace,
-    debug,
-    info,
-    warning,
-    error,
-    fatal
-};
+namespace Corona::Kernel {
 
 class ILogger {
    public:
@@ -19,6 +13,10 @@ class ILogger {
 
     virtual void log(LogLevel level, std::string_view message,
                      const std::source_location& location) = 0;
+
+    // Sink management
+    virtual void add_sink(std::shared_ptr<ISink> sink) = 0;
+    virtual void remove_all_sinks() = 0;
 
     // Convenience methods
     void trace(std::string_view message, const std::source_location& location = std::source_location::current()) {
@@ -48,5 +46,10 @@ class ILogger {
     virtual void set_level(LogLevel level) = 0;
     virtual LogLevel get_level() const = 0;
 };
+
+// Factory functions
+std::unique_ptr<ILogger> create_logger();
+std::shared_ptr<ISink> create_console_sink();
+std::shared_ptr<ISink> create_file_sink(std::string_view filename);
 
 }  // namespace Corona::Kernel
