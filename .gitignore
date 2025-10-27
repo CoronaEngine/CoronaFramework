@@ -49,3 +49,5 @@ lib/
 #cmake-build-debug/
 #cmake-build-release/
 
+# Log files
+*.log

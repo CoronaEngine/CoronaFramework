@@ -5,7 +5,7 @@
 ## 阶段 1: 核心基础设施搭建
 
 ### 1. 项目结构搭建
-- **状态:** 未开始
+- **状态:** 已完成
 - **描述:** 在 `src` 目录中为 `pal` 和 `kernel` 创建必要的目录结构。每个模块都将有自己的 `CMakeLists.txt` 来管理其源文件和依赖项。
 - **详细信息:**
     - `src/pal/`
@@ -16,7 +16,7 @@
     - `src/kernel/src/`
 
 ### 2. PAL - 接口定义
-- **状态:** 未开始
+- **状态:** 已完成
 - **描述:** 根据 `doc/pal_design.md` 为所有 PAL 接口创建头文件。
 - **要创建的文件:**
     - `src/pal/include/corona/pal/i_window.h`
@@ -24,7 +24,7 @@
     - `src/pal/include/corona/pal/i_dynamic_library.h`
 
 ### 3. PAL - 实现
-- **状态:** 未开始
+- **状态:** 已完成
 - **描述:** 实现 PAL 接口。文件系统将使用 `fast_io` 进行跨平台实现，而窗口系统等仍需平台特定代码。
 - **要创建的文件:**
     - `src/pal/src/fast_io_file_system.cpp` (跨平台)

@@ -6,3 +6,5 @@ include(compiler_settings)
 include(dependencies)
 
 add_subdirectory(src)
+add_subdirectory(src/pal)
+add_subdirectory(src/kernel)
