@@ -21,7 +21,7 @@ class IEventBus {
     template <Event T, EventHandler<T> Handler>
     EventId subscribe(Handler&& handler) {
         return subscribe_impl(std::type_index(typeid(T)),
-                              [handler = std::forward<Handler>(handler)](const void* event_ptr) {
+                              [handler = std::forward<Handler>(handler)](const void* event_ptr) mutable {
                                   handler(*static_cast<const T*>(event_ptr));
                               });
     }

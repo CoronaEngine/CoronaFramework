@@ -61,6 +61,17 @@ target_link_libraries(kernel_event_stream_test
         corona_pal
 )
 
+# EventBus 测试
+add_executable(kernel_event_bus_test
+    kernel/event_bus_test.cpp
+)
+
+target_link_libraries(kernel_event_bus_test
+    PRIVATE
+        corona_kernel
+        corona_pal
+)
+
 # Logger 测试
 add_executable(kernel_logger_test
     kernel/logger_test.cpp
@@ -122,6 +133,12 @@ add_test(
 add_test(
     NAME EventStream
     COMMAND kernel_event_stream_test
+)
+
+# 注册 EventBus 测试
+add_test(
+    NAME EventBus
+    COMMAND kernel_event_bus_test
 )
 
 # 注册 Logger 测试
@@ -213,6 +230,10 @@ message(STATUS "  - kernel_thread_safety_test: Thread safety stress tests")
 message(STATUS "  - kernel_system_test: System architecture tests")
 message(STATUS "  - kernel_performance_test: Performance monitoring tests")
 message(STATUS "  - kernel_event_stream_test: Event stream functionality tests")
+message(STATUS "  - kernel_event_bus_test: EventBus publish/subscribe tests")
+message(STATUS "  - kernel_logger_test: Logger functionality tests")
+message(STATUS "  - kernel_vfs_test: Virtual file system tests")
+message(STATUS "  - kernel_benchmark_test: Performance benchmark tests")
 message(STATUS "")
 message(STATUS "Run tests:")
 message(STATUS "  cd build && ctest")
