@@ -86,6 +86,7 @@ class SystemManager : public ISystemManager {
 
         systems_.push_back(system);
         systems_by_name_[std::string(system->get_name())] = system;
+        systems_sorted_ = false;  // Mark as unsorted when new system is registered
     }
 
     std::shared_ptr<ISystem> get_system(std::string_view name) override {
@@ -100,11 +101,14 @@ class SystemManager : public ISystemManager {
     bool initialize_all() override {
         std::lock_guard<std::mutex> lock(mutex_);
 
-        // 按优先级排序（高优先级优先初始化）
-        std::sort(systems_.begin(), systems_.end(),
-                  [](const auto& a, const auto& b) {
-                      return a->get_priority() > b->get_priority();
-                  });
+        // Only sort if systems were modified since last sort
+        if (!systems_sorted_) {
+            std::sort(systems_.begin(), systems_.end(),
+                      [](const auto& a, const auto& b) {
+                          return a->get_priority() > b->get_priority();
+                      });
+            systems_sorted_ = true;
+        }
 
         // 初始化所有系统
         for (auto& system : systems_) {
@@ -250,6 +254,7 @@ class SystemManager : public ISystemManager {
     std::vector<std::shared_ptr<ISystem>> systems_;
     std::map<std::string, std::shared_ptr<ISystem>> systems_by_name_;
     std::mutex mutex_;
+    bool systems_sorted_ = false;  // Track if systems are sorted by priority
 };
 
 // Factory function
