@@ -198,11 +198,11 @@ int main() {
     });
 
     // 模拟传感器数据
-    sensor_stream->publish(SensorData{1, 45.5, "°C"});
-    sensor_stream->publish(SensorData{2, 95.0, "°C"});  // 异常值
-    sensor_stream->publish(SensorData{1, 50.2, "°C"});
-    sensor_stream->publish(SensorData{3, 5.0, "°C"});   // 异常值
-    sensor_stream->publish(SensorData{2, 110.0, "°C"}); // 超出范围,被过滤
+    sensor_stream->publish(SensorData{1, 45.5, "C"});
+    sensor_stream->publish(SensorData{2, 95.0, "C"});  // 异常值
+    sensor_stream->publish(SensorData{1, 50.2, "C"});
+    sensor_stream->publish(SensorData{3, 5.0, "C"});   // 异常值
+    sensor_stream->publish(SensorData{2, 110.0, "C"}); // 超出范围,被过滤
     
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     sensor_sub.close();

@@ -157,10 +157,10 @@ public:
         ctx->event_bus()->subscribe<GameStateEvent>([this](const GameStateEvent& evt) {
             switch (evt.state) {
                 case GameStateEvent::State::Running:
-                    std::cout << "  [AudioSystem] 🔊 Resuming audio" << std::endl;
+                    std::cout << "  [AudioSystem] [AUDIO ON] Resuming audio" << std::endl;
                     break;
                 case GameStateEvent::State::Paused:
-                    std::cout << "  [AudioSystem] 🔇 Pausing audio" << std::endl;
+                    std::cout << "  [AudioSystem] [AUDIO OFF] Pausing audio" << std::endl;
                     break;
                 default:
                     break;
@@ -225,7 +225,7 @@ int main() {
         return 1;
     }
     
-    std::cout << "  ✓ All systems initialized" << std::endl;
+    std::cout << "  [OK] All systems initialized" << std::endl;
     std::cout << std::endl;
 
     // ========================================
@@ -249,13 +249,13 @@ int main() {
     
     system_manager->pause_all();
     event_bus->publish(GameStateEvent{GameStateEvent::State::Paused});
-    std::cout << "  ⏸ Systems paused" << std::endl;
+    std::cout << "  [PAUSE] Systems paused" << std::endl;
     
     std::this_thread::sleep_for(std::chrono::seconds(1));
     
     system_manager->resume_all();
     event_bus->publish(GameStateEvent{GameStateEvent::State::Running});
-    std::cout << "  ▶ Systems resumed" << std::endl;
+    std::cout << "  [RESUME] Systems resumed" << std::endl;
     
     std::this_thread::sleep_for(std::chrono::seconds(1));
     std::cout << std::endl;
@@ -285,7 +285,7 @@ int main() {
     
     system_manager->stop_all();
     event_bus->publish(GameStateEvent{GameStateEvent::State::Stopped});
-    std::cout << "  ⏹ Systems stopped" << std::endl;
+    std::cout << "  [STOP] Systems stopped" << std::endl;
     std::cout << std::endl;
 
     std::cout << "[Cleanup] Shutting down..." << std::endl;

@@ -57,7 +57,7 @@ int main() {
     vfs->mount("/assets/models/", "./assets/models/");
     vfs->mount("/saves/", "./saves/");
 
-    std::cout << "  ✓ Mounted 5 virtual paths" << std::endl;
+    std::cout << "  [OK] Mounted 5 virtual paths" << std::endl;
     std::cout << "    /config/       -> ./config/" << std::endl;
     std::cout << "    /data/         -> ./data/" << std::endl;
     std::cout << "    /assets/textures/ -> ./assets/textures/" << std::endl;
@@ -82,7 +82,7 @@ int main() {
 })";
 
     if (vfs->write_file("/config/game_settings.json", string_to_bytes(config_content))) {
-        logger->info("✓ Created config file: /config/game_settings.json");
+        logger->info("[OK] Created config file: /config/game_settings.json");
     }
 
     // 写入玩家数据
@@ -95,13 +95,13 @@ int main() {
 })";
 
     if (vfs->write_file("/data/player.json", string_to_bytes(player_data))) {
-        logger->info("✓ Created data file: /data/player.json");
+        logger->info("[OK] Created data file: /data/player.json");
     }
 
     // 写入存档
     std::string save_data = "SAVE_DATA_v1|2025-01-15|Level:10|HP:100/100|MP:50/50";
     if (vfs->write_file("/saves/save_001.dat", string_to_bytes(save_data))) {
-        logger->info("✓ Created save file: /saves/save_001.dat");
+        logger->info("[OK] Created save file: /saves/save_001.dat");
     }
 
     std::cout << std::endl;
@@ -122,7 +122,7 @@ int main() {
     // 读取玩家数据
     auto player_bytes = vfs->read_file("/data/player.json");
     if (!player_bytes.empty()) {
-        logger->info("✓ Loaded player data (" + std::to_string(player_bytes.size()) + " bytes)");
+        logger->info("[OK] Loaded player data (" + std::to_string(player_bytes.size()) + " bytes)");
     }
 
     std::cout << std::endl;
@@ -142,7 +142,7 @@ int main() {
     for (const auto& file : files_to_check) {
         bool exists = vfs->exists(file);
         std::cout << "  " << file << ": " 
-                  << (exists ? "✓ Exists" : "✗ Not found") << std::endl;
+                  << (exists ? "[Exists]" : "[Not found]") << std::endl;
     }
     std::cout << std::endl;
 
@@ -172,11 +172,11 @@ int main() {
 
     // 创建目录
     if (vfs->create_directory("/config/backup/")) {
-        logger->info("✓ Created directory: /config/backup/");
+        logger->info("[OK] Created directory: /config/backup/");
     }
 
     if (vfs->create_directory("/data/cache/temp/")) {
-        logger->info("✓ Created nested directory: /data/cache/temp/");
+        logger->info("[OK] Created nested directory: /data/cache/temp/");
     }
 
     // 列出目录内容
@@ -209,7 +209,7 @@ int main() {
 
     // 验证文件存在
     if (vfs->exists("/data/temp.txt")) {
-        std::cout << "  ✓ Temporary file exists" << std::endl;
+        std::cout << "  [OK] Temporary file exists" << std::endl;
     }
     std::cout << std::endl;
 
@@ -238,7 +238,7 @@ int main() {
 
     // 保存默认配置
     vfs->write_file("/config/default_settings.json", string_to_bytes(default_config));
-    logger->info("✓ Saved default configuration");
+    logger->info("[OK] Saved default configuration");
 
     // 用户自定义配置(覆盖部分默认值)
     std::string user_config = R"({
@@ -251,14 +251,14 @@ int main() {
 })";
 
     vfs->write_file("/config/user_settings.json", string_to_bytes(user_config));
-    logger->info("✓ Saved user configuration");
+    logger->info("[OK] Saved user configuration");
 
     // 读取配置
     auto default_cfg = vfs->read_file("/config/default_settings.json");
     auto user_cfg = vfs->read_file("/config/user_settings.json");
 
     if (!default_cfg.empty() && !user_cfg.empty()) {
-        std::cout << "  ✓ Configuration loaded successfully" << std::endl;
+        std::cout << "  [OK] Configuration loaded successfully" << std::endl;
         std::cout << "    Default config: " << default_cfg.size() << " bytes" << std::endl;
         std::cout << "    User config: " << user_cfg.size() << " bytes" << std::endl;
     }
@@ -270,11 +270,11 @@ int main() {
     std::cout << "[Example 9] Unmount Paths" << std::endl;
 
     vfs->unmount("/assets/models/");
-    logger->info("✓ Unmounted /assets/models/");
+    logger->info("[OK] Unmounted /assets/models/");
 
     // 尝试访问已卸载的路径
     if (!vfs->exists("/assets/models/character.obj")) {
-        std::cout << "  ✓ Cannot access unmounted path (expected)" << std::endl;
+        std::cout << "  [OK] Cannot access unmounted path (expected)" << std::endl;
     }
     std::cout << std::endl;
 

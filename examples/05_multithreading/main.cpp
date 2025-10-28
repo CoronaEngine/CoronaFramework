@@ -212,8 +212,8 @@ int main() {
     // 等待事件处理完成
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    std::cout << "  ✓ Published 1000 events from 4 threads" << std::endl;
-    std::cout << "  ✓ Received " << event_count << " events" << std::endl;
+    std::cout << "  [OK] Published 1000 events from 4 threads" << std::endl;
+    std::cout << "  [OK] Received " << event_count << " events" << std::endl;
     std::cout << std::endl;
 
     // 清空订阅者
@@ -240,7 +240,7 @@ int main() {
     }
 
     system_manager->start_all();
-    std::cout << "  ✓ All systems started" << std::endl;
+    std::cout << "  [OK] All systems started" << std::endl;
     std::cout << std::endl;
 
     // ========================================
@@ -260,7 +260,7 @@ int main() {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    std::cout << "  ✓ Tasks published" << std::endl;
+    std::cout << "  [OK] Tasks published" << std::endl;
     std::cout << "  Processing tasks (this will take a while)..." << std::endl;
     std::cout << std::endl;
 
@@ -288,7 +288,7 @@ int main() {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
-    std::cout << "  ✓ Broadcast tasks published" << std::endl;
+    std::cout << "  [OK] Broadcast tasks published" << std::endl;
     std::cout << "  Processing..." << std::endl;
     std::cout << std::endl;
 
