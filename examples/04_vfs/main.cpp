@@ -1,6 +1,7 @@
 // VFS Example - 展示虚拟文件系统
 // 演示如何使用VFS进行文件操作、路径映射和资源管理
 
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -45,24 +46,32 @@ int main() {
     auto* vfs = kernel.vfs();
     auto* logger = kernel.logger();
 
+    // 获取当前工作目录
+    auto current_dir = std::filesystem::current_path();
+    auto vfs_data_dir = current_dir / "04_vfs_data";
+    
+    std::cout << "Current directory: " << current_dir.string() << std::endl;
+    std::cout << "VFS data directory: " << vfs_data_dir.string() << std::endl;
+    std::cout << std::endl;
+
     // ========================================
     // 示例 1: 挂载虚拟路径
     // ========================================
     std::cout << "[Example 1] Mount Virtual Paths" << std::endl;
 
-    // 挂载不同的资源目录
-    vfs->mount("/config/", "./config/");
-    vfs->mount("/data/", "./data/");
-    vfs->mount("/assets/textures/", "./assets/textures/");
-    vfs->mount("/assets/models/", "./assets/models/");
-    vfs->mount("/saves/", "./saves/");
+    // 挂载不同的资源目录到示例程序目录下
+    vfs->mount("/config/", (vfs_data_dir / "config").string() + "/");
+    vfs->mount("/data/", (vfs_data_dir / "data").string() + "/");
+    vfs->mount("/assets/textures/", (vfs_data_dir / "assets/textures").string() + "/");
+    vfs->mount("/assets/models/", (vfs_data_dir / "assets/models").string() + "/");
+    vfs->mount("/saves/", (vfs_data_dir / "saves").string() + "/");
 
     std::cout << "  [OK] Mounted 5 virtual paths" << std::endl;
-    std::cout << "    /config/       -> ./config/" << std::endl;
-    std::cout << "    /data/         -> ./data/" << std::endl;
-    std::cout << "    /assets/textures/ -> ./assets/textures/" << std::endl;
-    std::cout << "    /assets/models/   -> ./assets/models/" << std::endl;
-    std::cout << "    /saves/        -> ./saves/" << std::endl;
+    std::cout << "    /config/          -> " << (vfs_data_dir / "config").string() << "/" << std::endl;
+    std::cout << "    /data/            -> " << (vfs_data_dir / "data").string() << "/" << std::endl;
+    std::cout << "    /assets/textures/ -> " << (vfs_data_dir / "assets/textures").string() << "/" << std::endl;
+    std::cout << "    /assets/models/   -> " << (vfs_data_dir / "assets/models").string() << "/" << std::endl;
+    std::cout << "    /saves/           -> " << (vfs_data_dir / "saves").string() << "/" << std::endl;
     std::cout << std::endl;
 
     // ========================================
