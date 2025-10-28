@@ -30,6 +30,29 @@ constexpr std::string_view level_to_string(LogLevel level) {
             return "UNKNOWN";
     }
 }
+
+// Helper function to format timestamp (shared across all sinks)
+void format_timestamp(const std::chrono::system_clock::time_point& timestamp, char* buffer, size_t buffer_size) {
+    auto time_t_now = std::chrono::system_clock::to_time_t(timestamp);
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(timestamp.time_since_epoch()) % 1000;
+
+    std::tm tm_buf;
+#ifdef _WIN32
+    localtime_s(&tm_buf, &time_t_now);
+#else
+    localtime_r(&time_t_now, &tm_buf);
+#endif
+
+    std::snprintf(buffer, buffer_size,
+                  "[%04d-%02d-%02d %02d:%02d:%02d.%03lld]",
+                  tm_buf.tm_year + 1900,
+                  tm_buf.tm_mon + 1,
+                  tm_buf.tm_mday,
+                  tm_buf.tm_hour,
+                  tm_buf.tm_min,
+                  tm_buf.tm_sec,
+                  static_cast<long long>(ms.count()));
+}
 }  // namespace
 
 // Console Sink using fast_io
@@ -45,27 +68,8 @@ class ConsoleSink : public ISink {
         std::lock_guard<std::mutex> lock(mutex_);
 
         // Format timestamp
-        auto time_t_now = std::chrono::system_clock::to_time_t(msg.timestamp);
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(msg.timestamp.time_since_epoch()) % 1000;
-
-        std::tm tm_buf;
-#ifdef _WIN32
-        localtime_s(&tm_buf, &time_t_now);
-#else
-        localtime_r(&time_t_now, &tm_buf);
-#endif
-
-        // Format time string with fixed width
         char time_buffer[32];
-        std::snprintf(time_buffer, sizeof(time_buffer),
-                      "[%04d-%02d-%02d %02d:%02d:%02d.%03lld]",
-                      tm_buf.tm_year + 1900,
-                      tm_buf.tm_mon + 1,
-                      tm_buf.tm_mday,
-                      tm_buf.tm_hour,
-                      tm_buf.tm_min,
-                      tm_buf.tm_sec,
-                      static_cast<long long>(ms.count()));
+        format_timestamp(msg.timestamp, time_buffer, sizeof(time_buffer));
 
         // Use fast_io to print
         fast_io::io::print(fast_io::mnp::os_c_str(time_buffer),
@@ -115,27 +119,8 @@ class FileSink : public ISink {
         std::lock_guard<std::mutex> lock(mutex_);
 
         // Format timestamp
-        auto time_t_now = std::chrono::system_clock::to_time_t(msg.timestamp);
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(msg.timestamp.time_since_epoch()) % 1000;
-
-        std::tm tm_buf;
-#ifdef _WIN32
-        localtime_s(&tm_buf, &time_t_now);
-#else
-        localtime_r(&time_t_now, &tm_buf);
-#endif
-
-        // Format time string with fixed width
         char time_buffer[32];
-        std::snprintf(time_buffer, sizeof(time_buffer),
-                      "[%04d-%02d-%02d %02d:%02d:%02d.%03lld]",
-                      tm_buf.tm_year + 1900,
-                      tm_buf.tm_mon + 1,
-                      tm_buf.tm_mday,
-                      tm_buf.tm_hour,
-                      tm_buf.tm_min,
-                      tm_buf.tm_sec,
-                      static_cast<long long>(ms.count()));
+        format_timestamp(msg.timestamp, time_buffer, sizeof(time_buffer));
 
         // Write to file using fast_io
         fast_io::io::print(file_,
