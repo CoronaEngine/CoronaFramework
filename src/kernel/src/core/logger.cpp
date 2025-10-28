@@ -10,8 +10,9 @@
 
 namespace Corona::Kernel {
 
-// Helper function to convert log level to string
-static std::string_view level_to_string(LogLevel level) {
+namespace {
+// Helper function to convert log level to string (shared across all sinks)
+constexpr std::string_view level_to_string(LogLevel level) {
     switch (level) {
         case LogLevel::trace:
             return "TRACE";
@@ -29,6 +30,7 @@ static std::string_view level_to_string(LogLevel level) {
             return "UNKNOWN";
     }
 }
+}  // namespace
 
 // Console Sink using fast_io
 class ConsoleSink : public ISink {
@@ -94,25 +96,6 @@ class ConsoleSink : public ISink {
     }
 
    private:
-    static std::string_view level_to_string(LogLevel level) {
-        switch (level) {
-            case LogLevel::trace:
-                return "TRACE";
-            case LogLevel::debug:
-                return "DEBUG";
-            case LogLevel::info:
-                return "INFO ";
-            case LogLevel::warning:
-                return "WARN ";
-            case LogLevel::error:
-                return "ERROR";
-            case LogLevel::fatal:
-                return "FATAL";
-            default:
-                return "UNKNOWN";
-        }
-    }
-
     LogLevel min_level_;
     std::mutex mutex_;
 };
@@ -183,25 +166,6 @@ class FileSink : public ISink {
     }
 
    private:
-    static std::string_view level_to_string(LogLevel level) {
-        switch (level) {
-            case LogLevel::trace:
-                return "TRACE";
-            case LogLevel::debug:
-                return "DEBUG";
-            case LogLevel::info:
-                return "INFO ";
-            case LogLevel::warning:
-                return "WARN ";
-            case LogLevel::error:
-                return "ERROR";
-            case LogLevel::fatal:
-                return "FATAL";
-            default:
-                return "UNKNOWN";
-        }
-    }
-
     LogLevel min_level_;
     fast_io::native_file file_;
     std::mutex mutex_;
