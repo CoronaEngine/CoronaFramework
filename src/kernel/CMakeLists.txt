@@ -1,17 +1,33 @@
-add_library(corona_kernel INTERFACE)
+add_library(corona_kernel STATIC
+    src/logger.cpp
+    src/event_bus.cpp
+    src/event_stream.cpp
+    src/vfs.cpp
+    src/plugin_manager.cpp
+    src/kernel_context.cpp
+    src/system_manager.cpp
+)
+
 add_library(corona::kernel ALIAS corona_kernel)
 
-target_include_directories(corona_kernel INTERFACE 
-    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+target_include_directories(corona_kernel PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
 )
 
-target_sources(corona_kernel INTERFACE
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/logger.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/event_bus.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/vfs.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/plugin_manager.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/kernel_context.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/system_manager.cpp"
+target_compile_features(corona_kernel PUBLIC cxx_std_20)
+target_link_libraries(corona_kernel PUBLIC corona::pal)
+
+# 安装规则
+install(TARGETS corona_kernel
+    EXPORT CoronaFrameworkTargets
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+    RUNTIME DESTINATION bin
+    INCLUDES DESTINATION include
 )
 
-target_link_libraries(corona_kernel INTERFACE corona::pal)
+install(DIRECTORY include/corona
+    DESTINATION include
+)
+
