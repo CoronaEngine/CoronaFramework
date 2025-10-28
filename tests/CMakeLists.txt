@@ -83,6 +83,17 @@ target_link_libraries(kernel_vfs_test
         corona_pal
 )
 
+# 性能基准测试
+add_executable(kernel_benchmark_test
+    kernel/benchmark_test.cpp
+)
+
+target_link_libraries(kernel_benchmark_test
+    PRIVATE
+        corona_kernel
+        corona_pal
+)
+
 # ========================================
 # 启用测试
 # ========================================
@@ -123,6 +134,12 @@ add_test(
 add_test(
     NAME VFS
     COMMAND kernel_vfs_test
+)
+
+# 注册性能基准测试
+add_test(
+    NAME Benchmark
+    COMMAND kernel_benchmark_test
 )
 
 # ========================================
