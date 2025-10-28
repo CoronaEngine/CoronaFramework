@@ -4,6 +4,7 @@
 #include "i_event_bus.h"
 #include "i_logger.h"
 #include "i_plugin_manager.h"
+#include "i_system_manager.h"
 #include "i_vfs.h"
 
 namespace Corona::Kernel {
@@ -23,6 +24,7 @@ class KernelContext {
     IEventBus* event_bus() const { return event_bus_.get(); }
     IVirtualFileSystem* vfs() const { return vfs_.get(); }
     IPluginManager* plugin_manager() const { return plugin_manager_.get(); }
+    ISystemManager* system_manager() const { return system_manager_.get(); }
 
    private:
     KernelContext() = default;
@@ -38,6 +40,7 @@ class KernelContext {
     std::unique_ptr<IEventBus> event_bus_;
     std::unique_ptr<IVirtualFileSystem> vfs_;
     std::unique_ptr<IPluginManager> plugin_manager_;
+    std::unique_ptr<ISystemManager> system_manager_;
 
     bool initialized_ = false;
 };

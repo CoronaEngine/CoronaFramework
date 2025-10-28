@@ -1,16 +1,17 @@
+#include <chrono>
 #include <iostream>
 #include <memory>
 #include <string>
+#include <thread>
 
+#include "corona/kernel/dummy_system.h"
 #include "corona/kernel/i_logger.h"
 #include "corona/kernel/kernel_context.h"
 #include "corona/pal/i_file_system.h"
-#include "corona/pal/i_window.h"
 
 // Forward declarations of factory functions
 namespace Corona::PAL {
 std::unique_ptr<IFileSystem> create_file_system();
-std::unique_ptr<IWindow> create_window();
 }  // namespace Corona::PAL
 
 int main() {
@@ -86,6 +87,37 @@ int main() {
     });
 
     event_bus->publish(TestEvent{"Hello from Event Bus!"});
+
+    // Test 4: Multi-threaded System Architecture
+    logger->info("[Test 4] Multi-threaded System Test");
+    auto system_manager = kernel.system_manager();
+
+    // Register a test system
+    auto dummy_system = std::make_shared<Corona::Kernel::DummySystem>();
+    system_manager->register_system(dummy_system);
+
+    // Initialize all systems
+    if (system_manager->initialize_all()) {
+        logger->info("  ✓ Systems initialized");
+    } else {
+        logger->error("  ✗ Systems initialization failed");
+        return 1;
+    }
+
+    // Start all systems
+    system_manager->start_all();
+    logger->info("  ✓ Systems started, running for 5 seconds...");
+
+    // Let systems run for a while
+    std::this_thread::sleep_for(std::chrono::seconds(5));
+
+    // Stop all systems
+    system_manager->stop_all();
+    logger->info("  ✓ Systems stopped");
+
+    // Shutdown all systems
+    system_manager->shutdown_all();
+    logger->info("  ✓ Systems shutdown");
 
     logger->info("=== All tests completed ===");
 

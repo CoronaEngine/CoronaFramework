@@ -9,7 +9,6 @@ target_include_directories(corona_pal INTERFACE
 # Add platform-specific sources
 if(WIN32)
     target_sources(corona_pal INTERFACE
-        "${CMAKE_CURRENT_SOURCE_DIR}/windows/win_window.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/windows/win_dynamic_library.cpp"
     )
 endif()

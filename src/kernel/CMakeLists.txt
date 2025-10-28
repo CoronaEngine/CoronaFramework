@@ -11,6 +11,7 @@ target_sources(corona_kernel INTERFACE
     "${CMAKE_CURRENT_SOURCE_DIR}/src/vfs.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/plugin_manager.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/kernel_context.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/system_manager.cpp"
 )
 
 target_link_libraries(corona_kernel INTERFACE corona::pal)
