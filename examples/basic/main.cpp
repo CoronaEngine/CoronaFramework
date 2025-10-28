@@ -4,9 +4,9 @@
 #include <string>
 #include <thread>
 
-#include "corona/kernel/dummy_system.h"
-#include "corona/kernel/i_logger.h"
-#include "corona/kernel/kernel_context.h"
+#include "../dummy_system/dummy_system.h"
+#include "corona/kernel/core/i_logger.h"
+#include "corona/kernel/core/kernel_context.h"
 #include "corona/pal/i_file_system.h"
 
 // Forward declarations of factory functions

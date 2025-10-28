@@ -2,7 +2,7 @@
 #include <memory>
 #include <mutex>
 
-#include "corona/kernel/i_plugin_manager.h"
+#include "corona/kernel/core/i_plugin_manager.h"
 #include "corona/pal/i_dynamic_library.h"
 
 namespace Corona::PAL {

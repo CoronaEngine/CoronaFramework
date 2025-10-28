@@ -3,7 +3,7 @@
 #include <mutex>
 #include <vector>
 
-#include "corona/kernel/i_event_bus.h"
+#include "corona/kernel/event/i_event_bus.h"
 
 namespace Corona::Kernel {
 
@@ -27,7 +27,9 @@ class EventBus : public IEventBus {
     EventId subscribe_impl(std::type_index type, TypeErasedHandler handler) override {
         std::lock_guard<std::mutex> lock(mutex_);
         EventId id = next_id_++;
-        subscriptions_[type].push_back({id, std::move(handler)});
+        auto& handlers = subscriptions_[type];
+        handlers.reserve(handlers.size() + 1);  // Optimize memory allocation
+        handlers.push_back({id, std::move(handler)});
         return id;
     }
 
@@ -38,6 +40,7 @@ class EventBus : public IEventBus {
             std::lock_guard<std::mutex> lock(mutex_);
             auto it = subscriptions_.find(type);
             if (it != subscriptions_.end()) {
+                handlers_copy.reserve(it->second.size());  // Pre-allocate exact size
                 for (const auto& sub : it->second) {
                     handlers_copy.push_back(sub.handler);
                 }

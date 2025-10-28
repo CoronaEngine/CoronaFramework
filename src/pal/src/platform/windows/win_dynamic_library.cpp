@@ -18,14 +18,16 @@ class WinDynamicLibrary : public IDynamicLibrary {
     }
 
     bool load(std::string_view path) override {
+        // Convert UTF-8 to wide string safely using std::wstring
         int path_length = MultiByteToWideChar(CP_UTF8, 0, path.data(), static_cast<int>(path.size()), nullptr, 0);
-        wchar_t* wide_path = new wchar_t[path_length + 1];
-        MultiByteToWideChar(CP_UTF8, 0, path.data(), static_cast<int>(path.size()), wide_path, path_length);
-        wide_path[path_length] = L'\0';
+        if (path_length == 0) {
+            return false;
+        }
 
-        handle_ = LoadLibraryW(wide_path);
-        delete[] wide_path;
+        std::wstring wide_path(path_length, L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, path.data(), static_cast<int>(path.size()), wide_path.data(), path_length);
 
+        handle_ = LoadLibraryW(wide_path.c_str());
         return handle_ != nullptr;
     }
 

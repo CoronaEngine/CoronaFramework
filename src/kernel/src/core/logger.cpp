@@ -6,12 +6,13 @@
 #include <mutex>
 #include <vector>
 
-#include "corona/kernel/i_logger.h"
+#include "corona/kernel/core/i_logger.h"
 
 namespace Corona::Kernel {
 
-// Helper function to convert log level to string
-static std::string_view level_to_string(LogLevel level) {
+namespace {
+// Helper function to convert log level to string (shared across all sinks)
+constexpr std::string_view level_to_string(LogLevel level) {
     switch (level) {
         case LogLevel::trace:
             return "TRACE";
@@ -30,6 +31,30 @@ static std::string_view level_to_string(LogLevel level) {
     }
 }
 
+// Helper function to format timestamp (shared across all sinks)
+void format_timestamp(const std::chrono::system_clock::time_point& timestamp, char* buffer, size_t buffer_size) {
+    auto time_t_now = std::chrono::system_clock::to_time_t(timestamp);
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(timestamp.time_since_epoch()) % 1000;
+
+    std::tm tm_buf;
+#ifdef _WIN32
+    localtime_s(&tm_buf, &time_t_now);
+#else
+    localtime_r(&time_t_now, &tm_buf);
+#endif
+
+    std::snprintf(buffer, buffer_size,
+                  "[%04d-%02d-%02d %02d:%02d:%02d.%03lld]",
+                  tm_buf.tm_year + 1900,
+                  tm_buf.tm_mon + 1,
+                  tm_buf.tm_mday,
+                  tm_buf.tm_hour,
+                  tm_buf.tm_min,
+                  tm_buf.tm_sec,
+                  static_cast<long long>(ms.count()));
+}
+}  // namespace
+
 // Console Sink using fast_io
 class ConsoleSink : public ISink {
    public:
@@ -43,27 +68,8 @@ class ConsoleSink : public ISink {
         std::lock_guard<std::mutex> lock(mutex_);
 
         // Format timestamp
-        auto time_t_now = std::chrono::system_clock::to_time_t(msg.timestamp);
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(msg.timestamp.time_since_epoch()) % 1000;
-
-        std::tm tm_buf;
-#ifdef _WIN32
-        localtime_s(&tm_buf, &time_t_now);
-#else
-        localtime_r(&time_t_now, &tm_buf);
-#endif
-
-        // Format time string with fixed width
         char time_buffer[32];
-        std::snprintf(time_buffer, sizeof(time_buffer),
-                      "[%04d-%02d-%02d %02d:%02d:%02d.%03lld]",
-                      tm_buf.tm_year + 1900,
-                      tm_buf.tm_mon + 1,
-                      tm_buf.tm_mday,
-                      tm_buf.tm_hour,
-                      tm_buf.tm_min,
-                      tm_buf.tm_sec,
-                      static_cast<long long>(ms.count()));
+        format_timestamp(msg.timestamp, time_buffer, sizeof(time_buffer));
 
         // Use fast_io to print
         fast_io::io::print(fast_io::mnp::os_c_str(time_buffer),
@@ -94,25 +100,6 @@ class ConsoleSink : public ISink {
     }
 
    private:
-    static std::string_view level_to_string(LogLevel level) {
-        switch (level) {
-            case LogLevel::trace:
-                return "TRACE";
-            case LogLevel::debug:
-                return "DEBUG";
-            case LogLevel::info:
-                return "INFO ";
-            case LogLevel::warning:
-                return "WARN ";
-            case LogLevel::error:
-                return "ERROR";
-            case LogLevel::fatal:
-                return "FATAL";
-            default:
-                return "UNKNOWN";
-        }
-    }
-
     LogLevel min_level_;
     std::mutex mutex_;
 };
@@ -132,27 +119,8 @@ class FileSink : public ISink {
         std::lock_guard<std::mutex> lock(mutex_);
 
         // Format timestamp
-        auto time_t_now = std::chrono::system_clock::to_time_t(msg.timestamp);
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(msg.timestamp.time_since_epoch()) % 1000;
-
-        std::tm tm_buf;
-#ifdef _WIN32
-        localtime_s(&tm_buf, &time_t_now);
-#else
-        localtime_r(&time_t_now, &tm_buf);
-#endif
-
-        // Format time string with fixed width
         char time_buffer[32];
-        std::snprintf(time_buffer, sizeof(time_buffer),
-                      "[%04d-%02d-%02d %02d:%02d:%02d.%03lld]",
-                      tm_buf.tm_year + 1900,
-                      tm_buf.tm_mon + 1,
-                      tm_buf.tm_mday,
-                      tm_buf.tm_hour,
-                      tm_buf.tm_min,
-                      tm_buf.tm_sec,
-                      static_cast<long long>(ms.count()));
+        format_timestamp(msg.timestamp, time_buffer, sizeof(time_buffer));
 
         // Write to file using fast_io
         fast_io::io::print(file_,
@@ -183,25 +151,6 @@ class FileSink : public ISink {
     }
 
    private:
-    static std::string_view level_to_string(LogLevel level) {
-        switch (level) {
-            case LogLevel::trace:
-                return "TRACE";
-            case LogLevel::debug:
-                return "DEBUG";
-            case LogLevel::info:
-                return "INFO ";
-            case LogLevel::warning:
-                return "WARN ";
-            case LogLevel::error:
-                return "ERROR";
-            case LogLevel::fatal:
-                return "FATAL";
-            default:
-                return "UNKNOWN";
-        }
-    }
-
     LogLevel min_level_;
     fast_io::native_file file_;
     std::mutex mutex_;

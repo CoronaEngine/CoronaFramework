@@ -2,7 +2,7 @@
 #include <memory>
 #include <mutex>
 
-#include "corona/kernel/i_vfs.h"
+#include "corona/kernel/core/i_vfs.h"
 #include "corona/pal/i_file_system.h"
 
 namespace Corona::PAL {

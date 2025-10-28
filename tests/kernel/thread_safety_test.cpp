@@ -6,8 +6,8 @@
 #include <thread>
 #include <vector>
 
-#include "corona/kernel/i_logger.h"
-#include "corona/kernel/kernel_context.h"
+#include "corona/kernel/core/i_logger.h"
+#include "corona/kernel/core/kernel_context.h"
 
 using namespace Corona::Kernel;
 using namespace CoronaTest;

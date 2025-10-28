@@ -1,4 +1,4 @@
-#include "corona/kernel/kernel_context.h"
+#include "corona/kernel/core/kernel_context.h"
 
 #include <memory>
 #include <mutex>

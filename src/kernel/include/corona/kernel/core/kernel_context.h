@@ -1,10 +1,10 @@
 #pragma once
 #include <memory>
 
-#include "i_event_bus.h"
+#include "../event/i_event_bus.h"
 #include "i_logger.h"
 #include "i_plugin_manager.h"
-#include "i_system_manager.h"
+#include "../system/i_system_manager.h"
 #include "i_vfs.h"
 
 namespace Corona::Kernel {

@@ -2,8 +2,8 @@
 #include <string>
 #include <string_view>
 
-#include "corona/kernel/i_logger.h"
-#include "corona/kernel/system_base.h"
+#include "corona/kernel/core/i_logger.h"
+#include "corona/kernel/system/system_base.h"
 
 namespace Corona::Kernel {
 
