@@ -18,6 +18,12 @@ add_executable(02_system_lifecycle 02_system_lifecycle/main.cpp)
 target_link_libraries(02_system_lifecycle PRIVATE corona::kernel corona::pal)
 
 # ========================================
+# 03 - EventStream Example
+# ========================================
+add_executable(03_event_stream 03_event_stream/main.cpp)
+target_link_libraries(03_event_stream PRIVATE corona::kernel corona::pal)
+
+# ========================================
 # 04 - VFS Example
 # ========================================
 add_executable(04_vfs 04_vfs/main.cpp)
