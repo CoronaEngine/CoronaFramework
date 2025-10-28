@@ -1,10 +1,13 @@
 #include <fast_io.h>
 #include <fast_io_device.h>
 
+#include <filesystem>
 #include <memory>
 #include <vector>
 
 #include "corona/pal/i_file_system.h"
+
+namespace fs = std::filesystem;
 
 namespace Corona::PAL {
 
@@ -42,6 +45,28 @@ class FastIoFileSystem : public IFileSystem {
         } catch (...) {
             return false;
         }
+    }
+
+    bool create_directory(std::string_view path) override {
+        try {
+            std::error_code ec;
+            fs::create_directories(fs::path(path), ec);
+            return !ec;
+        } catch (...) {
+            return false;
+        }
+    }
+
+    std::vector<std::string> list_directory(std::string_view path) override {
+        std::vector<std::string> entries;
+        try {
+            for (const auto& entry : fs::directory_iterator(fs::path(path))) {
+                entries.push_back(entry.path().filename().string());
+            }
+        } catch (...) {
+            // Return empty vector on error
+        }
+        return entries;
     }
 };
 

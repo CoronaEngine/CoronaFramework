@@ -72,6 +72,17 @@ target_link_libraries(kernel_logger_test
         corona_pal
 )
 
+# VFS 测试
+add_executable(kernel_vfs_test
+    kernel/vfs_test.cpp
+)
+
+target_link_libraries(kernel_vfs_test
+    PRIVATE
+        corona_kernel
+        corona_pal
+)
+
 # ========================================
 # 启用测试
 # ========================================
@@ -106,6 +117,12 @@ add_test(
 add_test(
     NAME Logger
     COMMAND kernel_logger_test
+)
+
+# 注册 VFS 测试
+add_test(
+    NAME VFS
+    COMMAND kernel_vfs_test
 )
 
 # ========================================
