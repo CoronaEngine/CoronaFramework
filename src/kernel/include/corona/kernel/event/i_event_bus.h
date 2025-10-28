@@ -1,15 +1,12 @@
 #pragma once
-#include <concepts>
 #include <functional>
 #include <typeindex>
+
+#include "event_concepts.h"
 
 namespace Corona::Kernel {
 
 using EventId = std::size_t;
-
-// Event concept: must be copyable and movable
-template <typename T>
-concept Event = std::is_copy_constructible_v<T> && std::is_move_constructible_v<T>;
 
 // EventHandler concept: callable with const T&
 template <typename Handler, typename T>
@@ -24,7 +21,7 @@ class IEventBus {
     template <Event T, EventHandler<T> Handler>
     EventId subscribe(Handler&& handler) {
         return subscribe_impl(std::type_index(typeid(T)),
-                              [handler = std::forward<Handler>(handler)](const void* event_ptr) {
+                              [handler = std::forward<Handler>(handler)](const void* event_ptr) mutable {
                                   handler(*static_cast<const T*>(event_ptr));
                               });
     }

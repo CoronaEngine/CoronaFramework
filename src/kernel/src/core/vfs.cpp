@@ -43,6 +43,63 @@ class VirtualFileSystem : public IVirtualFileSystem {
 
     std::string resolve(std::string_view virtual_path) const override {
         std::lock_guard<std::mutex> lock(mutex_);
+        return resolve_impl(virtual_path);
+    }
+
+    std::vector<std::byte> read_file(std::string_view virtual_path) override {
+        std::string physical_path = resolve(virtual_path);
+        return file_system_->read_all_bytes(physical_path);
+    }
+
+    bool write_file(std::string_view virtual_path, std::span<const std::byte> data) override {
+        std::string physical_path = resolve(virtual_path);
+        return file_system_->write_all_bytes(physical_path, data);
+    }
+
+    bool exists(std::string_view virtual_path) override {
+        std::string physical_path = resolve(virtual_path);
+        return file_system_->exists(physical_path);
+    }
+
+    std::vector<std::string> list_directory(std::string_view virtual_path) override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        // For directory operations, ensure path ends with /
+        std::string vpath(virtual_path);
+        if (!vpath.empty() && vpath.back() != '/') {
+            vpath += '/';
+        }
+        std::string physical_path = resolve_impl(vpath);
+        if (physical_path.empty()) {
+            return {};
+        }
+        // Remove trailing / for directory listing
+        if (!physical_path.empty() && physical_path.back() == '/') {
+            physical_path.pop_back();
+        }
+        return file_system_->list_directory(physical_path);
+    }
+
+    bool create_directory(std::string_view virtual_path) override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        // For directory operations, ensure path ends with /
+        std::string vpath(virtual_path);
+        if (!vpath.empty() && vpath.back() != '/') {
+            vpath += '/';
+        }
+        std::string physical_path = resolve_impl(vpath);
+        if (physical_path.empty()) {
+            return false;
+        }
+        // Remove trailing / for directory creation
+        if (!physical_path.empty() && physical_path.back() == '/') {
+            physical_path.pop_back();
+        }
+        return file_system_->create_directory(physical_path);
+    }
+
+   private:
+    // Internal resolve without locking (caller must hold lock)
+    std::string resolve_impl(std::string_view virtual_path) const {
         std::string vpath(virtual_path);
 
         // Find the longest matching mount point
@@ -65,32 +122,6 @@ class VirtualFileSystem : public IVirtualFileSystem {
         return std::string(virtual_path);
     }
 
-    std::vector<std::byte> read_file(std::string_view virtual_path) override {
-        std::string physical_path = resolve(virtual_path);
-        return file_system_->read_all_bytes(physical_path);
-    }
-
-    bool write_file(std::string_view virtual_path, std::span<const std::byte> data) override {
-        std::string physical_path = resolve(virtual_path);
-        return file_system_->write_all_bytes(physical_path, data);
-    }
-
-    bool exists(std::string_view virtual_path) override {
-        std::string physical_path = resolve(virtual_path);
-        return file_system_->exists(physical_path);
-    }
-
-    std::vector<std::string> list_directory(std::string_view virtual_path) override {
-        // TODO: Implement directory listing using PAL
-        return {};
-    }
-
-    bool create_directory(std::string_view virtual_path) override {
-        // TODO: Implement directory creation using PAL
-        return false;
-    }
-
-   private:
     std::unique_ptr<PAL::IFileSystem> file_system_;
     std::map<std::string, std::string> mount_points_;
     mutable std::mutex mutex_;

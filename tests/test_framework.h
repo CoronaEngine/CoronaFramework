@@ -121,10 +121,24 @@ public:
         } \
     } while (0)
 
+#define ASSERT_GE(a, b) \
+    do { \
+        if ((a) < (b)) { \
+            throw std::runtime_error("Assertion failed: " #a " >= " #b); \
+        } \
+    } while (0)
+
 #define ASSERT_LT(a, b) \
     do { \
         if ((a) >= (b)) { \
             throw std::runtime_error("Assertion failed: " #a " < " #b); \
+        } \
+    } while (0)
+
+#define ASSERT_LE(a, b) \
+    do { \
+        if ((a) > (b)) { \
+            throw std::runtime_error("Assertion failed: " #a " <= " #b); \
         } \
     } while (0)
 

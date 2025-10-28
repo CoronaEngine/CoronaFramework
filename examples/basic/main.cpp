@@ -29,7 +29,7 @@ int main() {
     logger->info("[Test 0] Logger Sink Test");
     auto file_sink = Corona::Kernel::create_file_sink("corona.log");
     logger->add_sink(file_sink);
-    logger->info("  ✓ Added file sink, now logging to both console and file");
+    logger->info("  [OK] Added file sink, now logging to both console and file");
     logger->debug("  This is a debug message");
     logger->warning("  This is a warning message");
     logger->error("  This is an error message");
@@ -47,32 +47,32 @@ int main() {
     }
 
     if (fs->write_all_bytes("test.txt", data)) {
-        logger->info("  ✓ File write successful");
+        logger->info("  [OK] File write successful");
     } else {
-        logger->error("  ✗ File write failed");
+        logger->error("  [FAIL] File write failed");
     }
 
     // Exists test
     if (fs->exists("test.txt")) {
-        logger->info("  ✓ File exists check successful");
+        logger->info("  [OK] File exists check successful");
     } else {
-        logger->error("  ✗ File exists check failed");
+        logger->error("  [FAIL] File exists check failed");
     }
 
     // Read test
     auto read_data = fs->read_all_bytes("test.txt");
     if (!read_data.empty()) {
         std::string read_content(reinterpret_cast<const char*>(read_data.data()), read_data.size());
-        logger->info("  ✓ File read successful: " + read_content);
+        logger->info("  [OK] File read successful: " + read_content);
     } else {
-        logger->error("  ✗ File read failed");
+        logger->error("  [FAIL] File read failed");
     }
 
     // Test 2: VFS
     logger->info("[Test 2] Virtual File System Test");
     auto vfs = kernel.vfs();
     vfs->mount("/data/", "./data/");
-    logger->info("  ✓ Mounted /data/ to ./data/");
+    logger->info("  [OK] Mounted /data/ to ./data/");
 
     // Test 3: Event Bus
     logger->info("[Test 3] Event Bus Test");
@@ -83,7 +83,7 @@ int main() {
     };
 
     event_bus->subscribe<TestEvent>([logger](const TestEvent& event) {
-        logger->info("  ✓ Event received: " + event.message);
+        logger->info("  [OK] Event received: " + event.message);
     });
 
     event_bus->publish(TestEvent{"Hello from Event Bus!"});
@@ -98,26 +98,26 @@ int main() {
 
     // Initialize all systems
     if (system_manager->initialize_all()) {
-        logger->info("  ✓ Systems initialized");
+        logger->info("  [OK] Systems initialized");
     } else {
-        logger->error("  ✗ Systems initialization failed");
+        logger->error("  [FAIL] Systems initialization failed");
         return 1;
     }
 
     // Start all systems
     system_manager->start_all();
-    logger->info("  ✓ Systems started, running for 5 seconds...");
+    logger->info("  [OK] Systems started, running for 5 seconds...");
 
     // Let systems run for a while
     std::this_thread::sleep_for(std::chrono::seconds(5));
 
     // Stop all systems
     system_manager->stop_all();
-    logger->info("  ✓ Systems stopped");
+    logger->info("  [OK] Systems stopped");
 
     // Shutdown all systems
     system_manager->shutdown_all();
-    logger->info("  ✓ Systems shutdown");
+    logger->info("  [OK] Systems shutdown");
 
     logger->info("=== All tests completed ===");
 

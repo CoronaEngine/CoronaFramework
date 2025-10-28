@@ -5,20 +5,13 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <type_traits>
 #include <typeindex>
 #include <unordered_map>
 #include <vector>
 
+#include "event_concepts.h"
+
 namespace Corona::Kernel {
-
-// ========================================
-// Concepts
-// ========================================
-
-// Event concept: must be copyable and movable
-template <typename T>
-concept Event = std::is_copy_constructible_v<T> && std::is_move_constructible_v<T>;
 
 // ========================================
 // Event Stream Configuration
@@ -386,6 +379,16 @@ std::shared_ptr<EventStream<T>> IEventBusStream::get_stream() {
     }
 
     return std::static_pointer_cast<EventStream<T>>(stream);
+}
+
+// ========================================
+// Factory Functions
+// ========================================
+
+// Create a standalone event stream
+template <Event T>
+std::shared_ptr<EventStream<T>> create_event_stream(std::size_t max_queue_size = 256) {
+    return std::make_shared<EventStream<T>>();
 }
 
 }  // namespace Corona::Kernel

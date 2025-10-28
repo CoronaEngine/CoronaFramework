@@ -1,4 +1,5 @@
 #pragma once
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -28,5 +29,8 @@ class IVirtualFileSystem {
     virtual std::vector<std::string> list_directory(std::string_view virtual_path) = 0;
     virtual bool create_directory(std::string_view virtual_path) = 0;
 };
+
+// Factory function
+std::unique_ptr<IVirtualFileSystem> create_vfs();
 
 }  // namespace Corona::Kernel

@@ -459,6 +459,271 @@ TEST(EventStream, HighThroughput) {
     std::cout << "Throughput: " << (ms > 0 ? (kEventCount * 1000 / ms) : kEventCount) << " events/sec\n";
 }
 
+// ========================================
+// Boundary and Error Handling Tests
+// ========================================
+
+TEST(EventStream, ZeroMaxQueueSize) {
+    EventStreamOptions opts;
+    opts.max_queue_size = 0;
+    opts.policy = BackpressurePolicy::DropNewest;
+
+    EventStream<SimpleEvent> stream;
+    auto sub = stream.subscribe(opts);
+
+    // Implementation automatically adjusts 0 to 1 for safety
+    // Should not crash with zero queue size
+    stream.publish(SimpleEvent{100});
+
+    auto event = sub.try_pop();
+    ASSERT_TRUE(event.has_value());  // Zero gets adjusted to 1
+    ASSERT_EQ(event->value, 100);
+}
+
+TEST(EventStream, VerySmallQueueSize) {
+    EventStreamOptions opts;
+    opts.max_queue_size = 1;
+    opts.policy = BackpressurePolicy::DropOldest;
+
+    EventStream<SimpleEvent> stream;
+    auto sub = stream.subscribe(opts);
+
+    stream.publish(SimpleEvent{1});
+    stream.publish(SimpleEvent{2});
+    stream.publish(SimpleEvent{3});
+
+    // Should only have the latest event
+    auto event = sub.try_pop();
+    ASSERT_TRUE(event.has_value());
+    ASSERT_EQ(event->value, 3);
+
+    auto empty_event = sub.try_pop();
+    ASSERT_FALSE(empty_event.has_value());
+}
+
+TEST(EventStream, VeryLargeQueueSize) {
+    EventStreamOptions opts;
+    opts.max_queue_size = 1000000;  // 1 million
+
+    EventStream<SimpleEvent> stream;
+    auto sub = stream.subscribe(opts);
+
+    // Should not crash with very large queue size
+    for (int i = 0; i < 100; ++i) {
+        stream.publish(SimpleEvent{i});
+    }
+
+    int count = 0;
+    while (auto event = sub.try_pop()) {
+        count++;
+    }
+
+    ASSERT_EQ(count, 100);
+}
+
+TEST(EventStream, PublishToNoSubscribers) {
+    EventStream<SimpleEvent> stream;
+
+    // Should not crash when publishing to stream with no subscribers
+    stream.publish(SimpleEvent{999});
+
+    ASSERT_EQ(stream.subscriber_count(), 0u);
+}
+
+TEST(EventStream, MultipleCloseCalls) {
+    EventStream<SimpleEvent> stream;
+    auto sub = stream.subscribe();
+
+    // First close
+    sub.close();
+    ASSERT_FALSE(sub.is_valid());
+
+    // Second close should not crash
+    sub.close();
+    ASSERT_FALSE(sub.is_valid());
+
+    // Third close
+    sub.close();
+    ASSERT_FALSE(sub.is_valid());
+}
+
+TEST(EventStream, WaitForZeroTimeout) {
+    EventStream<SimpleEvent> stream;
+    auto sub = stream.subscribe();
+
+    auto start = std::chrono::steady_clock::now();
+    auto event = sub.wait_for(0ms);
+    auto elapsed = std::chrono::steady_clock::now() - start;
+
+    ASSERT_FALSE(event.has_value());
+    ASSERT_LT(elapsed, 50ms);  // Should return immediately
+}
+
+TEST(EventStream, WaitForNegativeTimeout) {
+    EventStream<SimpleEvent> stream;
+    auto sub = stream.subscribe();
+
+    // Negative timeout should behave like zero timeout
+    auto start = std::chrono::steady_clock::now();
+    auto event = sub.wait_for(std::chrono::milliseconds(-100));
+    auto elapsed = std::chrono::steady_clock::now() - start;
+
+    ASSERT_FALSE(event.has_value());
+    ASSERT_LT(elapsed, 50ms);  // Should return immediately
+}
+
+TEST(EventStream, RapidSubscribeUnsubscribe) {
+    EventStream<SimpleEvent> stream;
+
+    // Create and destroy many subscriptions rapidly
+    for (int i = 0; i < 100; ++i) {
+        auto sub = stream.subscribe();
+        ASSERT_TRUE(sub.is_valid());
+    }  // sub destroyed
+
+    std::this_thread::sleep_for(10ms);
+    
+    // Should still work after many subscribe/unsubscribe cycles
+    auto sub = stream.subscribe();
+    stream.publish(SimpleEvent{777});
+
+    auto event = sub.try_pop();
+    ASSERT_TRUE(event.has_value());
+    ASSERT_EQ(event->value, 777);
+}
+
+TEST(EventStream, LargeEventData) {
+    struct LargeEvent {
+        std::vector<int> data;
+    };
+
+    EventStream<LargeEvent> stream;
+    auto sub = stream.subscribe();
+
+    // Create a large event (10KB)
+    LargeEvent large_event;
+    large_event.data.resize(2560, 42);  // 10KB of integers
+
+    stream.publish(large_event);
+
+    auto event = sub.try_pop();
+    ASSERT_TRUE(event.has_value());
+    ASSERT_EQ(event->data.size(), 2560u);
+    ASSERT_EQ(event->data[0], 42);
+    ASSERT_EQ(event->data[2559], 42);
+}
+
+TEST(EventStream, MixedBackpressurePolicies) {
+    EventStream<SimpleEvent> stream;
+
+    // Create subscriptions with different policies
+    auto sub1 = stream.subscribe({.max_queue_size = 3, .policy = BackpressurePolicy::DropOldest});
+    auto sub2 = stream.subscribe({.max_queue_size = 3, .policy = BackpressurePolicy::DropNewest});
+
+    // Publish 5 events
+    for (int i = 0; i < 5; ++i) {
+        stream.publish(SimpleEvent{i});
+    }
+
+    // sub1 (DropOldest) should have events 2, 3, 4
+    auto e1_1 = sub1.try_pop();
+    auto e1_2 = sub1.try_pop();
+    auto e1_3 = sub1.try_pop();
+
+    ASSERT_TRUE(e1_1.has_value());
+    ASSERT_TRUE(e1_2.has_value());
+    ASSERT_TRUE(e1_3.has_value());
+    ASSERT_EQ(e1_1->value, 2);
+    ASSERT_EQ(e1_2->value, 3);
+    ASSERT_EQ(e1_3->value, 4);
+
+    // sub2 (DropNewest) should have events 0, 1, 2
+    auto e2_1 = sub2.try_pop();
+    auto e2_2 = sub2.try_pop();
+    auto e2_3 = sub2.try_pop();
+
+    ASSERT_TRUE(e2_1.has_value());
+    ASSERT_TRUE(e2_2.has_value());
+    ASSERT_TRUE(e2_3.has_value());
+    ASSERT_EQ(e2_1->value, 0);
+    ASSERT_EQ(e2_2->value, 1);
+    ASSERT_EQ(e2_3->value, 2);
+}
+
+TEST(EventStream, PublishAfterAllSubscribersClose) {
+    EventStream<SimpleEvent> stream;
+
+    {
+        auto sub1 = stream.subscribe();
+        auto sub2 = stream.subscribe();
+        
+        stream.publish(SimpleEvent{100});
+        
+        sub1.close();
+        sub2.close();
+    }
+
+    std::this_thread::sleep_for(10ms);
+
+    // Publishing after all subscribers close should not crash
+    stream.publish(SimpleEvent{200});
+    
+    // New subscriber should not receive old events
+    auto new_sub = stream.subscribe();
+    auto event = new_sub.try_pop();
+    ASSERT_FALSE(event.has_value());
+}
+
+TEST(EventStream, ConcurrentCloseAndPublish) {
+    EventStream<SimpleEvent> stream;
+    auto sub = stream.subscribe({.max_queue_size = 1000});
+
+    std::atomic<bool> stop{false};
+
+    // Publisher thread
+    std::thread publisher([&] {
+        for (int i = 0; i < 1000 && !stop.load(); ++i) {
+            stream.publish(SimpleEvent{i});
+            if (i % 50 == 0) {
+                std::this_thread::sleep_for(1ms);
+            }
+        }
+    });
+
+    std::this_thread::sleep_for(100ms);
+
+    // Close subscription while publishing
+    sub.close();
+    stop = true;
+
+    publisher.join();
+
+    // Should not crash
+    ASSERT_FALSE(sub.is_valid());
+}
+
+TEST(EventStream, WaitInterruptedByClose) {
+    EventStream<SimpleEvent> stream;
+    auto sub = stream.subscribe();
+
+    std::atomic<bool> wait_returned{false};
+
+    // Thread waiting indefinitely
+    std::thread waiter([&] {
+        auto event = sub.wait();
+        wait_returned = true;
+        ASSERT_FALSE(event.has_value());
+    });
+
+    std::this_thread::sleep_for(50ms);
+
+    // Close should interrupt the wait
+    sub.close();
+
+    waiter.join();
+    ASSERT_TRUE(wait_returned.load());
+}
+
 int main() {
     return CoronaTest::TestRunner::instance().run_all();
 }
