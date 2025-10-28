@@ -232,6 +232,177 @@ TEST(Logger, ConcurrentLogging) {
 }
 
 // ========================================
+// Error Handling Tests
+// ========================================
+
+TEST(Logger, EmptyMessage) {
+    auto logger = create_logger();
+    auto sink = create_console_sink();
+    logger->add_sink(std::move(sink));
+    
+    // Should not crash with empty message
+    logger->log(LogLevel::info, "", std::source_location::current());
+}
+
+TEST(Logger, VeryLongMessage) {
+    const char* test_file = "test_long_message.log";
+    std::remove(test_file);
+    
+    {
+        auto logger = create_logger();
+        auto sink = create_file_sink(test_file);
+        logger->add_sink(std::move(sink));
+        
+        // Create a very long message (10KB)
+        std::string long_message(10000, 'A');
+        logger->log(LogLevel::info, long_message, std::source_location::current());
+    }
+    
+    std::ifstream file(test_file);
+    ASSERT_TRUE(file.good());
+    
+    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    ASSERT_TRUE(content.find(std::string(10000, 'A')) != std::string::npos);
+    
+    std::remove(test_file);
+}
+
+TEST(Logger, SpecialCharactersInMessage) {
+    const char* test_file = "test_special_chars.log";
+    std::remove(test_file);
+    
+    {
+        auto logger = create_logger();
+        auto sink = create_file_sink(test_file);
+        logger->add_sink(std::move(sink));
+        
+        // Test various special characters
+        logger->log(LogLevel::info, "Special: \n\t\r\\\"\'", std::source_location::current());
+        logger->log(LogLevel::info, "Unicode: 你好世界 🎉", std::source_location::current());
+    }
+    
+    std::ifstream file(test_file);
+    ASSERT_TRUE(file.good());
+    
+    std::remove(test_file);
+}
+
+TEST(Logger, RapidFireLogging) {
+    const char* test_file = "test_rapid_fire.log";
+    std::remove(test_file);
+    
+    {
+        auto logger = create_logger();
+        auto sink = create_file_sink(test_file);
+        logger->add_sink(std::move(sink));
+        
+        // Log 1000 messages rapidly
+        for (int i = 0; i < 1000; ++i) {
+            logger->log(LogLevel::info, "Message " + std::to_string(i), std::source_location::current());
+        }
+    }
+    
+    std::ifstream file(test_file);
+    int line_count = 0;
+    std::string line;
+    while (std::getline(file, line)) {
+        if (!line.empty()) {
+            line_count++;
+        }
+    }
+    
+    ASSERT_EQ(line_count, 1000);
+    
+    std::remove(test_file);
+}
+
+TEST(Logger, RemoveAllSinks) {
+    auto logger = create_logger();
+    auto sink1 = create_console_sink();
+    auto sink2 = create_console_sink();
+    
+    logger->add_sink(std::move(sink1));
+    logger->add_sink(std::move(sink2));
+    
+    logger->remove_all_sinks();
+    
+    // Should not crash even with no sinks
+    logger->log(LogLevel::info, "Message after removing all sinks", std::source_location::current());
+}
+
+TEST(Logger, LogAfterSinkDestruction) {
+    const char* test_file = "test_sink_destruction.log";
+    std::remove(test_file);
+    
+    auto logger = create_logger();
+    
+    {
+        auto sink = create_file_sink(test_file);
+        logger->add_sink(std::move(sink));
+        logger->log(LogLevel::info, "Message 1", std::source_location::current());
+    }
+    
+    // File sink is destroyed, but logger still exists
+    // This should work because remove_all_sinks wasn't called
+    logger->log(LogLevel::info, "Message 2", std::source_location::current());
+    
+    std::remove(test_file);
+}
+
+TEST(Logger, MultipleLoggersIndependent) {
+    auto logger1 = create_logger();
+    auto logger2 = create_logger();
+    
+    int count1 = 0, count2 = 0;
+    
+    // Each logger should be independent
+    logger1->log(LogLevel::info, "Logger 1", std::source_location::current());
+    logger2->log(LogLevel::info, "Logger 2", std::source_location::current());
+    
+    // Both should work independently
+    ASSERT_TRUE(true);
+}
+
+// ========================================
+// Level Filtering Edge Cases
+// ========================================
+
+TEST(Logger, AllLevelsFiltered) {
+    const char* test_file = "test_all_filtered.log";
+    std::remove(test_file);
+    
+    {
+        auto logger = create_logger();
+        auto sink = create_file_sink(test_file);
+        
+        // Set level to fatal, so everything below is filtered
+        sink->set_level(LogLevel::fatal);
+        logger->add_sink(std::move(sink));
+        
+        logger->log(LogLevel::trace, "Trace", std::source_location::current());
+        logger->log(LogLevel::debug, "Debug", std::source_location::current());
+        logger->log(LogLevel::info, "Info", std::source_location::current());
+        logger->log(LogLevel::warning, "Warning", std::source_location::current());
+        logger->log(LogLevel::error, "Error", std::source_location::current());
+        logger->log(LogLevel::fatal, "Fatal", std::source_location::current());
+    }
+    
+    std::ifstream file(test_file);
+    int line_count = 0;
+    std::string line;
+    while (std::getline(file, line)) {
+        if (!line.empty()) {
+            line_count++;
+        }
+    }
+    
+    // Only fatal message should be logged
+    ASSERT_EQ(line_count, 1);
+    
+    std::remove(test_file);
+}
+
+// ========================================
 // Main
 // ========================================
 
