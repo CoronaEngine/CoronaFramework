@@ -81,7 +81,7 @@ int main() {
     // 订阅者 2: 检查成就
     event_bus->subscribe<PlayerScoreEvent>([](const PlayerScoreEvent& evt) {
         if (evt.score >= 100) {
-            std::cout << "  [AchievementSystem] 🏆 Player " << evt.player_id 
+            std::cout << "  [AchievementSystem] [TROPHY] Player " << evt.player_id 
                       << " unlocked 'High Scorer' achievement!" << std::endl;
         }
     });
