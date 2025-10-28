@@ -9,13 +9,13 @@ add_subdirectory(src/pal)
 add_subdirectory(src/kernel)
 
 # 添加示例（可选）
-option(BUILD_EXAMPLES "Build examples" ON)
+option(BUILD_EXAMPLES "Build examples" ${PROJECT_IS_TOP_LEVEL})
 if(BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
 
 # 添加测试（可选）
-option(BUILD_TESTS "Build test suite" ON)
+option(BUILD_TESTS "Build test suite" ${PROJECT_IS_TOP_LEVEL})
 if(BUILD_TESTS)
     add_subdirectory(tests)
 endif()
