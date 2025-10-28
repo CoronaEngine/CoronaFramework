@@ -1,7 +1,7 @@
-#include <fast_io.h>
-
 #include <chrono>
 #include <cstdio>
+#include <fstream>
+#include <iostream>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -55,7 +55,7 @@ void format_timestamp(const std::chrono::system_clock::time_point& timestamp, ch
 }
 }  // namespace
 
-// Console Sink using fast_io
+// Console Sink using std::cout
 class ConsoleSink : public ISink {
    public:
     ConsoleSink() : min_level_(LogLevel::info) {}
@@ -71,23 +71,19 @@ class ConsoleSink : public ISink {
         char time_buffer[32];
         format_timestamp(msg.timestamp, time_buffer, sizeof(time_buffer));
 
-        // Use fast_io to print
-        fast_io::io::print(fast_io::mnp::os_c_str(time_buffer),
-                           " [",
-                           level_to_string(msg.level),
-                           "] [",
-                           fast_io::mnp::os_c_str(msg.location.file_name()), ":",
-                           msg.location.line(), ":",
-                           msg.location.column(),
-                           "] ",
-                           fast_io::mnp::os_c_str(msg.message.data()),
-                           "\n");
+        // Use std::cout to print
+        std::cout << time_buffer
+                  << " [" << level_to_string(msg.level) << "]"
+                  << " [" << msg.location.file_name() 
+                  << ":" << msg.location.line() 
+                  << ":" << msg.location.column() << "]"
+                  << " " << msg.message
+                  << std::endl;
     }
 
     void flush() override {
         std::lock_guard<std::mutex> lock(mutex_);
-        // Flush stdout
-        fast_io::flush(fast_io::out());
+        std::cout.flush();
     }
 
     void set_level(LogLevel level) override {
@@ -104,12 +100,12 @@ class ConsoleSink : public ISink {
     std::mutex mutex_;
 };
 
-// File Sink using fast_io
+// File Sink using std::ofstream
 class FileSink : public ISink {
    public:
     explicit FileSink(std::string_view filename)
         : min_level_(LogLevel::trace),
-          file_(filename, fast_io::open_mode::out | fast_io::open_mode::app) {}
+          file_(std::string(filename), std::ios::out | std::ios::app) {}
 
     void log(const LogMessage& msg) override {
         if (msg.level < min_level_) {
@@ -122,23 +118,19 @@ class FileSink : public ISink {
         char time_buffer[32];
         format_timestamp(msg.timestamp, time_buffer, sizeof(time_buffer));
 
-        // Write to file using fast_io
-        fast_io::io::print(file_,
-                           fast_io::mnp::os_c_str(time_buffer),
-                           " [",
-                           level_to_string(msg.level),
-                           "] [",
-                           fast_io::mnp::os_c_str(msg.location.file_name()), ":",
-                           msg.location.line(), ":",
-                           msg.location.column(),
-                           "] ",
-                           fast_io::mnp::os_c_str(msg.message.data()),
-                           "\n");
+        // Write to file using std::ofstream
+        file_ << time_buffer
+              << " [" << level_to_string(msg.level) << "]"
+              << " [" << msg.location.file_name() 
+              << ":" << msg.location.line() 
+              << ":" << msg.location.column() << "]"
+              << " " << msg.message
+              << std::endl;
     }
 
     void flush() override {
         std::lock_guard<std::mutex> lock(mutex_);
-        fast_io::flush(file_);
+        file_.flush();
     }
 
     void set_level(LogLevel level) override {
@@ -152,7 +144,7 @@ class FileSink : public ISink {
 
    private:
     LogLevel min_level_;
-    fast_io::native_file file_;
+    std::ofstream file_;
     std::mutex mutex_;
 };
 

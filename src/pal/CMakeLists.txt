@@ -1,5 +1,5 @@
 add_library(corona_pal STATIC
-    src/common/fast_io_file_system.cpp
+    src/common/file_system.cpp
     src/common/factory.cpp
 )
 
@@ -26,7 +26,6 @@ endif()
 
 target_include_directories(corona_pal PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<BUILD_INTERFACE:${fast_io_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
 
