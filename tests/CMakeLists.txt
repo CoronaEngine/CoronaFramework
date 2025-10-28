@@ -50,6 +50,17 @@ target_link_libraries(kernel_performance_test
         corona_pal
 )
 
+# 事件流测试
+add_executable(kernel_event_stream_test
+    kernel/event_stream_test.cpp
+)
+
+target_link_libraries(kernel_event_stream_test
+    PRIVATE
+        corona_kernel
+        corona_pal
+)
+
 # ========================================
 # 启用测试
 # ========================================
@@ -72,6 +83,12 @@ add_test(
 add_test(
     NAME Performance
     COMMAND kernel_performance_test
+)
+
+# 注册事件流测试
+add_test(
+    NAME EventStream
+    COMMAND kernel_event_stream_test
 )
 
 # ========================================
@@ -112,6 +129,15 @@ if(ENABLE_THREAD_SANITIZER)
     target_link_options(kernel_performance_test PRIVATE
         -fsanitize=thread
     )
+    
+    target_compile_options(kernel_event_stream_test PRIVATE
+        -fsanitize=thread
+        -g
+        -O1
+    )
+    target_link_options(kernel_event_stream_test PRIVATE
+        -fsanitize=thread
+    )
 endif()
 
 # ========================================
@@ -135,12 +161,14 @@ message(STATUS "Tests added:")
 message(STATUS "  - kernel_thread_safety_test: Thread safety stress tests")
 message(STATUS "  - kernel_system_test: System architecture tests")
 message(STATUS "  - kernel_performance_test: Performance monitoring tests")
+message(STATUS "  - kernel_event_stream_test: Event stream functionality tests")
 message(STATUS "")
 message(STATUS "Run tests:")
 message(STATUS "  cd build && ctest")
 message(STATUS "  or")
 message(STATUS "  cd build && ./tests/kernel_thread_safety_test")
 message(STATUS "  cd build && ./tests/kernel_system_test")
+message(STATUS "  cd build && ./tests/kernel_event_stream_test")
 message(STATUS "")
 message(STATUS "Run with ThreadSanitizer:")
 message(STATUS "  cmake -DENABLE_THREAD_SANITIZER=ON ..")
