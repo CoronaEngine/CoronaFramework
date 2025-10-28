@@ -61,6 +61,17 @@ target_link_libraries(kernel_event_stream_test
         corona_pal
 )
 
+# Logger 测试
+add_executable(kernel_logger_test
+    kernel/logger_test.cpp
+)
+
+target_link_libraries(kernel_logger_test
+    PRIVATE
+        corona_kernel
+        corona_pal
+)
+
 # ========================================
 # 启用测试
 # ========================================
@@ -89,6 +100,12 @@ add_test(
 add_test(
     NAME EventStream
     COMMAND kernel_event_stream_test
+)
+
+# 注册 Logger 测试
+add_test(
+    NAME Logger
+    COMMAND kernel_logger_test
 )
 
 # ========================================

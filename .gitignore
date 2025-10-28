@@ -52,5 +52,9 @@ lib/
 # Log files
 *.log
 
+# Test output files
+test*.log
+test*.txt
+
 # Cache files
 .cache/
