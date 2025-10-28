@@ -6,7 +6,7 @@
 #include <mutex>
 #include <vector>
 
-#include "corona/kernel/i_logger.h"
+#include "corona/kernel/core/i_logger.h"
 
 namespace Corona::Kernel {
 

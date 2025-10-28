@@ -3,7 +3,7 @@
 #include <mutex>
 #include <vector>
 
-#include "corona/kernel/i_event_bus.h"
+#include "corona/kernel/event/i_event_bus.h"
 
 namespace Corona::Kernel {
 

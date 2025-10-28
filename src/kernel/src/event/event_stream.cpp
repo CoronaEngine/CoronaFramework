@@ -1,4 +1,4 @@
-#include "corona/kernel/i_event_stream.h"
+#include "corona/kernel/event/i_event_stream.h"
 #include <cassert>
 
 namespace Corona::Kernel {

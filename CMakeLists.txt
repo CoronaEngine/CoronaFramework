@@ -7,7 +7,12 @@ include(dependencies)
 
 add_subdirectory(src/pal)
 add_subdirectory(src/kernel)
-add_subdirectory(src)
+
+# 添加示例（可选）
+option(BUILD_EXAMPLES "Build examples" ON)
+if(BUILD_EXAMPLES)
+    add_subdirectory(examples)
+endif()
 
 # 添加测试（可选）
 option(BUILD_TESTS "Build test suite" ON)

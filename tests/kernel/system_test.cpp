@@ -6,8 +6,8 @@
 #include <thread>
 #include <vector>
 
-#include "corona/kernel/kernel_context.h"
-#include "corona/kernel/system_base.h"
+#include "corona/kernel/core/kernel_context.h"
+#include "corona/kernel/system/system_base.h"
 
 using namespace Corona::Kernel;
 using namespace CoronaTest;

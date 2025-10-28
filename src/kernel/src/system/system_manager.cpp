@@ -1,4 +1,4 @@
-#include "corona/kernel/i_system_manager.h"
+#include "corona/kernel/system/i_system_manager.h"
 
 #include <algorithm>
 #include <map>
@@ -6,13 +6,13 @@
 #include <mutex>
 #include <string>
 
-#include "corona/kernel/i_event_bus.h"
-#include "corona/kernel/i_logger.h"
-#include "corona/kernel/i_plugin_manager.h"
-#include "corona/kernel/i_system_context.h"
-#include "corona/kernel/i_vfs.h"
-#include "corona/kernel/kernel_context.h"
-#include "corona/kernel/system_base.h"
+#include "corona/kernel/event/i_event_bus.h"
+#include "corona/kernel/core/i_logger.h"
+#include "corona/kernel/core/i_plugin_manager.h"
+#include "corona/kernel/system/i_system_context.h"
+#include "corona/kernel/core/i_vfs.h"
+#include "corona/kernel/core/kernel_context.h"
+#include "corona/kernel/system/system_base.h"
 
 namespace Corona::Kernel {
 

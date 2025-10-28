@@ -1,6 +1,6 @@
 add_library(corona_pal STATIC
-    src/fast_io_file_system.cpp
-    src/factory.cpp
+    src/common/fast_io_file_system.cpp
+    src/common/factory.cpp
 )
 
 add_library(corona::pal ALIAS corona_pal)
@@ -8,18 +8,18 @@ add_library(corona::pal ALIAS corona_pal)
 # Add platform-specific sources
 if(WIN32)
     target_sources(corona_pal PRIVATE
-        windows/win_dynamic_library.cpp
+        src/platform/windows/win_dynamic_library.cpp
     )
 elseif(UNIX AND NOT APPLE)
     # Linux support - to be implemented
     # target_sources(corona_pal PRIVATE
-    #     linux/linux_dynamic_library.cpp
+    #     src/platform/linux/linux_dynamic_library.cpp
     # )
     message(WARNING "Linux platform support not yet implemented")
 elseif(APPLE)
     # macOS support - to be implemented
     # target_sources(corona_pal PRIVATE
-    #     macos/macos_dynamic_library.cpp
+    #     src/platform/macos/macos_dynamic_library.cpp
     # )
     message(WARNING "macOS platform support not yet implemented")
 endif()

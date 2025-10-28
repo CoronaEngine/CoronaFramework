@@ -1,5 +1,5 @@
 #include "../test_framework.h"
-#include "corona/kernel/i_event_stream.h"
+#include "corona/kernel/event/i_event_stream.h"
 #include <thread>
 #include <atomic>
 #include <chrono>

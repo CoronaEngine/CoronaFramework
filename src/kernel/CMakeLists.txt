@@ -1,11 +1,11 @@
 add_library(corona_kernel STATIC
-    src/logger.cpp
-    src/event_bus.cpp
-    src/event_stream.cpp
-    src/vfs.cpp
-    src/plugin_manager.cpp
-    src/kernel_context.cpp
-    src/system_manager.cpp
+    src/core/logger.cpp
+    src/event/event_bus.cpp
+    src/event/event_stream.cpp
+    src/core/vfs.cpp
+    src/core/plugin_manager.cpp
+    src/core/kernel_context.cpp
+    src/system/system_manager.cpp
 )
 
 add_library(corona::kernel ALIAS corona_kernel)
