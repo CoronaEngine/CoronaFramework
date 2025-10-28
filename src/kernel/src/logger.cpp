@@ -79,6 +79,7 @@ class ConsoleSink : public ISink {
     }
 
     void flush() override {
+        std::lock_guard<std::mutex> lock(mutex_);
         // Flush stdout
         fast_io::flush(fast_io::out());
     }

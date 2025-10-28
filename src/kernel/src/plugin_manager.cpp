@@ -14,6 +14,21 @@ namespace Corona::Kernel {
 using CreatePluginFunc = IPlugin* (*)();
 using DestroyPluginFunc = void (*)(IPlugin*);
 
+// Custom deleter for shared_ptr that uses the plugin's destroy function
+class PluginDeleter {
+   public:
+    explicit PluginDeleter(DestroyPluginFunc destroy_func) : destroy_func_(destroy_func) {}
+    
+    void operator()(IPlugin* plugin) const {
+        if (plugin && destroy_func_) {
+            destroy_func_(plugin);
+        }
+    }
+    
+   private:
+    DestroyPluginFunc destroy_func_;
+};
+
 class PluginManager : public IPluginManager {
    public:
     PluginManager() = default;
@@ -44,7 +59,7 @@ class PluginManager : public IPluginManager {
 
         PluginInfo info = plugin->get_info();
         plugins_.emplace(info.name, PluginEntry{
-                                        std::unique_ptr<IPlugin, DestroyPluginFunc>(plugin, destroy_func),
+                                        std::shared_ptr<IPlugin>(plugin, PluginDeleter(destroy_func)),
                                         std::move(library),
                                         false});
 
@@ -62,11 +77,11 @@ class PluginManager : public IPluginManager {
         }
     }
 
-    IPlugin* get_plugin(std::string_view name) override {
+    std::shared_ptr<IPlugin> get_plugin(std::string_view name) override {
         std::lock_guard<std::mutex> lock(mutex_);
         auto it = plugins_.find(std::string(name));
         if (it != plugins_.end()) {
-            return it->second.plugin.get();
+            return it->second.plugin;
         }
         return nullptr;
     }
@@ -108,7 +123,7 @@ class PluginManager : public IPluginManager {
 
    private:
     struct PluginEntry {
-        std::unique_ptr<IPlugin, DestroyPluginFunc> plugin;
+        std::shared_ptr<IPlugin> plugin;
         std::unique_ptr<PAL::IDynamicLibrary> library;
         bool initialized;
     };

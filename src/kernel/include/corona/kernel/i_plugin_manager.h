@@ -1,4 +1,5 @@
 #pragma once
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -30,8 +31,8 @@ class IPluginManager {
     // Unload a plugin by name
     virtual void unload_plugin(std::string_view name) = 0;
 
-    // Get a plugin by name
-    virtual IPlugin* get_plugin(std::string_view name) = 0;
+    // Get a plugin by name (returns shared_ptr for safe lifetime management)
+    virtual std::shared_ptr<IPlugin> get_plugin(std::string_view name) = 0;
 
     // Get all loaded plugins
     virtual std::vector<std::string> get_loaded_plugins() const = 0;
