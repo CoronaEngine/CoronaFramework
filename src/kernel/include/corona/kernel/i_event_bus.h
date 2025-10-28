@@ -1,40 +1,48 @@
 #pragma once
-#include <any>
+#include <concepts>
 #include <functional>
 #include <typeindex>
 
 namespace Corona::Kernel {
 
-using EventHandler = std::function<void(const std::any&)>;
 using EventId = std::size_t;
+
+// Event concept: must be copyable and movable
+template <typename T>
+concept Event = std::is_copy_constructible_v<T> && std::is_move_constructible_v<T>;
+
+// EventHandler concept: callable with const T&
+template <typename Handler, typename T>
+concept EventHandler = Event<T> && std::invocable<Handler, const T&>;
 
 class IEventBus {
    public:
     virtual ~IEventBus() = default;
 
-    // Subscribe to an event by type
-    virtual EventId subscribe(std::type_index type, EventHandler handler) = 0;
+    // Subscribe to an event type with compile-time type safety
+    // Returns an EventId that can be used to unsubscribe
+    template <Event T, EventHandler<T> Handler>
+    EventId subscribe(Handler&& handler) {
+        return subscribe_impl(std::type_index(typeid(T)),
+                              [handler = std::forward<Handler>(handler)](const void* event_ptr) {
+                                  handler(*static_cast<const T*>(event_ptr));
+                              });
+    }
 
-    // Unsubscribe from an event
+    // Unsubscribe from an event using the EventId
     virtual void unsubscribe(EventId id) = 0;
 
-    // Publish an event
-    virtual void publish(std::type_index type, const std::any& event) = 0;
-
-    // Template convenience methods
-    template <typename T>
-    EventId subscribe(std::function<void(const T&)> handler) {
-        return subscribe(std::type_index(typeid(T)), [handler](const std::any& event) {
-            if (event.type() == typeid(T)) {
-                handler(std::any_cast<const T&>(event));
-            }
-        });
-    }
-
-    template <typename T>
+    // Publish an event with compile-time type safety
+    template <Event T>
     void publish(const T& event) {
-        publish(std::type_index(typeid(T)), event);
+        publish_impl(std::type_index(typeid(T)), &event);
     }
+
+   protected:
+    // Internal type-erased implementation
+    using TypeErasedHandler = std::function<void(const void*)>;
+    virtual EventId subscribe_impl(std::type_index type, TypeErasedHandler handler) = 0;
+    virtual void publish_impl(std::type_index type, const void* event_ptr) = 0;
 };
 
 }  // namespace Corona::Kernel

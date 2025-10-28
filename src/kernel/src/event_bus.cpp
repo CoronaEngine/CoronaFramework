@@ -11,13 +11,6 @@ class EventBus : public IEventBus {
    public:
     EventBus() : next_id_(0) {}
 
-    EventId subscribe(std::type_index type, EventHandler handler) override {
-        std::lock_guard<std::mutex> lock(mutex_);
-        EventId id = next_id_++;
-        subscriptions_[type].push_back({id, std::move(handler)});
-        return id;
-    }
-
     void unsubscribe(EventId id) override {
         std::lock_guard<std::mutex> lock(mutex_);
         for (auto& [type, handlers] : subscriptions_) {
@@ -30,8 +23,16 @@ class EventBus : public IEventBus {
         }
     }
 
-    void publish(std::type_index type, const std::any& event) override {
-        std::vector<EventHandler> handlers_copy;
+   protected:
+    EventId subscribe_impl(std::type_index type, TypeErasedHandler handler) override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        EventId id = next_id_++;
+        subscriptions_[type].push_back({id, std::move(handler)});
+        return id;
+    }
+
+    void publish_impl(std::type_index type, const void* event_ptr) override {
+        std::vector<TypeErasedHandler> handlers_copy;
 
         {
             std::lock_guard<std::mutex> lock(mutex_);
@@ -45,14 +46,14 @@ class EventBus : public IEventBus {
 
         // Call handlers without holding the lock to avoid deadlocks
         for (const auto& handler : handlers_copy) {
-            handler(event);
+            handler(event_ptr);
         }
     }
 
    private:
     struct Subscription {
         EventId id;
-        EventHandler handler;
+        TypeErasedHandler handler;
     };
 
     std::map<std::type_index, std::vector<Subscription>> subscriptions_;
