@@ -189,11 +189,63 @@ class SystemManager : public ISystemManager {
         return systems_;
     }
 
+    SystemStats get_system_stats(std::string_view name) override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        
+        auto sys = get_system_unlocked(name);
+        if (!sys) {
+            return SystemStats{};
+        }
+
+        SystemStats stats;
+        stats.name = sys->get_name();
+        stats.state = sys->get_state();
+        stats.target_fps = sys->get_target_fps();
+        stats.actual_fps = sys->get_actual_fps();
+        stats.average_frame_time_ms = sys->get_average_frame_time();
+        stats.max_frame_time_ms = sys->get_max_frame_time();
+        stats.total_frames = sys->get_total_frames();
+        stats.total_update_calls = sys->get_total_frames();  // 与总帧数相同
+
+        return stats;
+    }
+
+    std::vector<SystemStats> get_all_stats() override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        
+        std::vector<SystemStats> all_stats;
+        all_stats.reserve(systems_.size());
+
+        for (const auto& sys : systems_) {
+            SystemStats stats;
+            stats.name = sys->get_name();
+            stats.state = sys->get_state();
+            stats.target_fps = sys->get_target_fps();
+            stats.actual_fps = sys->get_actual_fps();
+            stats.average_frame_time_ms = sys->get_average_frame_time();
+            stats.max_frame_time_ms = sys->get_max_frame_time();
+            stats.total_frames = sys->get_total_frames();
+            stats.total_update_calls = sys->get_total_frames();
+
+            all_stats.push_back(stats);
+        }
+
+        return all_stats;
+    }
+
     SystemContext* get_context() {
         return context_.get();
     }
 
    private:
+    // 无锁版本（内部使用）
+    std::shared_ptr<ISystem> get_system_unlocked(std::string_view name) {
+        auto it = systems_by_name_.find(std::string(name));
+        if (it != systems_by_name_.end()) {
+            return it->second;
+        }
+        return nullptr;
+    }
     std::unique_ptr<SystemContext> context_;
     std::vector<std::shared_ptr<ISystem>> systems_;
     std::map<std::string, std::shared_ptr<ISystem>> systems_by_name_;

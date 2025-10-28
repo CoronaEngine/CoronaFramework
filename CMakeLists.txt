@@ -8,3 +8,9 @@ include(dependencies)
 add_subdirectory(src)
 add_subdirectory(src/pal)
 add_subdirectory(src/kernel)
+
+# 添加测试（可选）
+option(BUILD_TESTS "Build test suite" ON)
+if(BUILD_TESTS)
+    add_subdirectory(tests)
+endif()

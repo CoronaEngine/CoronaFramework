@@ -21,7 +21,11 @@ class SystemBase : public ISystem {
           context_(nullptr),
           target_fps_(60),
           frame_number_(0),
-          last_delta_time_(0.0f) {}
+          last_delta_time_(0.0f),
+          total_frames_(0),
+          total_frame_time_(0.0),
+          max_frame_time_(0.0f),
+          stats_window_size_(60) {}  // 60 帧滑动窗口
 
     virtual ~SystemBase() {
         if (thread_.joinable()) {
@@ -97,6 +101,35 @@ class SystemBase : public ISystem {
         state_.store(SystemState::stopped, std::memory_order_release);
     }
 
+    // 性能统计接口实现
+    float get_actual_fps() const override {
+        std::lock_guard<std::mutex> lock(stats_mutex_);
+        if (total_frames_ == 0) return 0.0f;
+        return static_cast<float>(total_frames_) / total_frame_time_;
+    }
+
+    float get_average_frame_time() const override {
+        std::lock_guard<std::mutex> lock(stats_mutex_);
+        if (total_frames_ == 0) return 0.0f;
+        return static_cast<float>((total_frame_time_ / total_frames_) * 1000.0);  // 转换为毫秒
+    }
+
+    float get_max_frame_time() const override {
+        std::lock_guard<std::mutex> lock(stats_mutex_);
+        return max_frame_time_;
+    }
+
+    std::uint64_t get_total_frames() const override {
+        return total_frames_.load(std::memory_order_relaxed);
+    }
+
+    void reset_stats() override {
+        std::lock_guard<std::mutex> lock(stats_mutex_);
+        total_frames_.store(0, std::memory_order_relaxed);
+        total_frame_time_ = 0.0;
+        max_frame_time_ = 0.0f;
+    }
+
    protected:
     // 获取系统上下文
     ISystemContext* context() {
@@ -150,9 +183,22 @@ class SystemBase : public ISystem {
 
             frame_number_++;
 
+            // 收集性能统计
+            auto frame_end = std::chrono::high_resolution_clock::now();
+            float frame_time = std::chrono::duration<float>(frame_end - frame_start).count();
+            float frame_time_ms = frame_time * 1000.0f;
+
+            {
+                std::lock_guard<std::mutex> lock(stats_mutex_);
+                total_frames_.fetch_add(1, std::memory_order_relaxed);
+                total_frame_time_ += frame_time;
+                if (frame_time_ms > max_frame_time_) {
+                    max_frame_time_ = frame_time_ms;
+                }
+            }
+
             // 帧率限制
             if (target_fps_ > 0) {
-                auto frame_end = std::chrono::high_resolution_clock::now();
                 auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(frame_end - frame_start);
 
                 if (elapsed < frame_duration) {
@@ -180,6 +226,13 @@ class SystemBase : public ISystem {
     int target_fps_;
     uint64_t frame_number_;
     float last_delta_time_;
+
+    // 性能统计
+    mutable std::mutex stats_mutex_;
+    std::atomic<std::uint64_t> total_frames_;
+    double total_frame_time_;  // 秒
+    float max_frame_time_;      // 毫秒
+    int stats_window_size_;     // 滑动窗口大小（保留用于未来优化）
 };
 
 }  // namespace Corona::Kernel
