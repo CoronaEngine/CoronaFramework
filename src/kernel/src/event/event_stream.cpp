@@ -20,49 +20,29 @@ class EventBusStream : public IEventBusStream {
         return it != streams_.end() ? it->second : nullptr;
     }
 
-    std::shared_ptr<void> create_stream_impl(std::type_index type) override {
+    std::shared_ptr<void> get_or_create_stream_impl(std::type_index type,
+                                                    std::shared_ptr<void> new_stream) override {
         std::lock_guard<std::mutex> lock(streams_mutex_);
 
+        // Double-check: another thread might have created it
         auto it = streams_.find(type);
         if (it != streams_.end()) {
-            return it->second;
+            return it->second;  // Return existing stream
         }
 
-        // This is a bit hacky, but we can't instantiate the template without the type
-        // In practice, this should never be called directly - users should call get_stream<T>()
-        assert(false && "create_stream_impl should not be called directly");
-        return nullptr;
+        // Insert new stream
+        streams_[type] = new_stream;
+        return new_stream;
     }
 
    private:
-    template <Event T>
-    friend class EventStreamFactory;
-
-    void register_stream_impl(std::type_index type, std::shared_ptr<void> stream) {
-        std::lock_guard<std::mutex> lock(streams_mutex_);
-        streams_[type] = std::move(stream);
-    }
-
     std::mutex streams_mutex_;
     std::unordered_map<std::type_index, std::shared_ptr<void>> streams_;
 };
 
-// Helper to create event streams with proper type information
-template <Event T>
-class EventStreamFactory {
-   public:
-    static std::shared_ptr<EventStream<T>> create_or_get(EventBusStream& bus) {
-        auto type = std::type_index(typeid(T));
-        auto existing = bus.get_stream_impl(type);
-
-        if (existing) {
-            return std::static_pointer_cast<EventStream<T>>(existing);
-        }
-
-        auto stream = std::make_shared<EventStream<T>>();
-        bus.register_stream_impl(type, stream);
-        return stream;
-    }
-};
+// Factory function
+std::unique_ptr<IEventBusStream> create_event_bus_stream() {
+    return std::make_unique<EventBusStream>();
+}
 
 }  // namespace Corona::Kernel

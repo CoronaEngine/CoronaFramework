@@ -8,6 +8,7 @@ namespace Corona::Kernel {
 // Forward declare factory functions
 std::unique_ptr<ILogger> create_logger();
 std::unique_ptr<IEventBus> create_event_bus();
+std::unique_ptr<IEventBusStream> create_event_bus_stream();
 std::unique_ptr<IVirtualFileSystem> create_vfs();
 std::unique_ptr<IPluginManager> create_plugin_manager();
 std::unique_ptr<ISystemManager> create_system_manager();
@@ -35,6 +36,11 @@ bool KernelContext::initialize() {
 
     event_bus_ = create_event_bus();
     if (!event_bus_) {
+        return false;
+    }
+
+    event_stream_ = create_event_bus_stream();
+    if (!event_stream_) {
         return false;
     }
 
@@ -74,6 +80,7 @@ void KernelContext::shutdown() {
     system_manager_.reset();
     plugin_manager_.reset();
     vfs_.reset();
+    event_stream_.reset();
     event_bus_.reset();
     logger_.reset();
 

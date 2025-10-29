@@ -4,10 +4,16 @@
  *
  * 这个示例展示了一个完整的游戏主循环架构，包括：
  * - 游戏系统（输入、物理、渲染、音频、游戏逻辑）
- * - 事件驱动的游戏逻辑
+ * - EventStream 异步事件通信（推荐用于多线程架构）
  * - 实体管理
  * - 性能监控
  * - 游戏状态管理
+ *
+ * 架构说明：
+ * - 使用 EventStream 进行跨线程异步通信
+ * - 发布者立即返回，不阻塞
+ * - 订阅者主动拉取事件（try_pop/wait）
+ * - 完全线程安全，性能隔离
  */
 
 #include <chrono>
@@ -20,7 +26,7 @@
 #include <vector>
 
 #include "corona/kernel/core/kernel_context.h"
-#include "corona/kernel/event/i_event_bus.h"
+#include "corona/kernel/event/i_event_stream.h"
 #include "corona/kernel/system/i_system_manager.h"
 #include "corona/kernel/system/system_base.h"
 
@@ -156,7 +162,7 @@ class EntityManager {
 };
 
 // ============================================================================
-// 输入系统
+// 输入系统 - 使用 EventStream 发布事件
 // ============================================================================
 
 class InputSystem : public SystemBase {
@@ -169,7 +175,11 @@ class InputSystem : public SystemBase {
 
     bool initialize(ISystemContext* ctx) override {
         ctx_ = ctx;
-        ctx_->logger()->info("InputSystem initialized");
+
+        // 获取 EventStream（推荐用于跨线程通信）
+        input_stream_ = ctx_->event_stream()->get_stream<InputEvent>();
+
+        ctx_->logger()->info("InputSystem initialized (EventStream mode)");
         return true;
     }
 
@@ -189,13 +199,13 @@ class InputSystem : public SystemBase {
                 InputEvent::Type::move_right};
 
             InputEvent event{types[dis(gen)], 1};
-            ctx_->event_bus()->publish(event);
+            input_stream_->publish(event);  // 异步发布，立即返回
         }
 
         // 随机射击
         if (frame_count_ % 45 == 0) {
             InputEvent event{InputEvent::Type::action, 1};
-            ctx_->event_bus()->publish(event);
+            input_stream_->publish(event);
         }
     }
 
@@ -207,10 +217,11 @@ class InputSystem : public SystemBase {
     ISystemContext* ctx_ = nullptr;
     EntityManager* entities_;
     int frame_count_ = 0;
+    std::shared_ptr<EventStream<InputEvent>> input_stream_;
 };
 
 // ============================================================================
-// 物理系统
+// 物理系统 - 订阅输入事件，发布碰撞事件
 // ============================================================================
 
 class PhysicsSystem : public SystemBase {
@@ -223,18 +234,25 @@ class PhysicsSystem : public SystemBase {
 
     bool initialize(ISystemContext* ctx) override {
         ctx_ = ctx;
-        ctx_->logger()->info("PhysicsSystem initialized");
 
-        // 订阅输入事件
-        ctx->event_bus()->subscribe<InputEvent>([this](const InputEvent& evt) {
-            on_input(evt);
-        });
+        // 订阅输入事件（EventStream 方式）
+        input_subscription_ = ctx_->event_stream()->get_stream<InputEvent>()->subscribe();
 
+        // 获取碰撞事件发布流
+        collision_stream_ = ctx_->event_stream()->get_stream<CollisionEvent>();
+        spawn_stream_ = ctx_->event_stream()->get_stream<EntitySpawnEvent>();
+
+        ctx_->logger()->info("PhysicsSystem initialized (EventStream mode)");
         return true;
     }
 
     void update() override {
         const float dt = 1.0f / 60.0f;
+
+        // 处理输入事件（非阻塞拉取）
+        while (auto event = input_subscription_.try_pop()) {
+            on_input(*event);
+        }
 
         // 更新所有实体位置
         for (auto* entity : entities_->get_all_active()) {
@@ -267,6 +285,7 @@ class PhysicsSystem : public SystemBase {
     void shutdown() override {
         ctx_->logger()->info("PhysicsSystem shutdown - total collisions: " +
                              std::to_string(collision_count_));
+        input_subscription_.close();
     }
 
    private:
@@ -302,7 +321,7 @@ class PhysicsSystem : public SystemBase {
             bullet->vy = -400.0f;  // 向上飞
 
             EntitySpawnEvent evt{id, "bullet", bullet->x, bullet->y};
-            ctx_->event_bus()->publish(evt);
+            spawn_stream_->publish(evt);  // 使用 EventStream
         }
     }
 
@@ -319,11 +338,11 @@ class PhysicsSystem : public SystemBase {
                 float dist = std::sqrt(dx * dx + dy * dy);
 
                 if (dist < collision_radius) {
-                    // 碰撞！
+                    // 碰撞！发布到 EventStream
                     CollisionEvent evt{
                         bullet->id, enemy->id,
                         "bullet", "enemy"};
-                    ctx_->event_bus()->publish(evt);
+                    collision_stream_->publish(evt);
 
                     entities_->destroy(bullet->id);
                     entities_->destroy(enemy->id);
@@ -338,6 +357,11 @@ class PhysicsSystem : public SystemBase {
     ISystemContext* ctx_ = nullptr;
     EntityManager* entities_;
     int collision_count_ = 0;
+
+    // EventStream 订阅和发布
+    EventSubscription<InputEvent> input_subscription_;
+    std::shared_ptr<EventStream<CollisionEvent>> collision_stream_;
+    std::shared_ptr<EventStream<EntitySpawnEvent>> spawn_stream_;
 };
 
 // ============================================================================
@@ -381,7 +405,7 @@ class RenderSystem : public SystemBase {
 };
 
 // ============================================================================
-// 音频系统
+// 音频系统 - 订阅事件并播放音效
 // ============================================================================
 
 class AudioSystem : public SystemBase {
@@ -392,27 +416,32 @@ class AudioSystem : public SystemBase {
 
     bool initialize(ISystemContext* ctx) override {
         ctx_ = ctx;
-        ctx_->logger()->info("AudioSystem initialized");
 
-        // 订阅事件来播放音效
-        ctx->event_bus()->subscribe<CollisionEvent>([this](const CollisionEvent& evt) {
-            play_sound("explosion.wav");
-        });
+        // 订阅碰撞和得分事件（EventStream 方式）
+        collision_subscription_ = ctx_->event_stream()->get_stream<CollisionEvent>()->subscribe();
+        score_subscription_ = ctx_->event_stream()->get_stream<ScoreEvent>()->subscribe();
 
-        ctx->event_bus()->subscribe<ScoreEvent>([this](const ScoreEvent& evt) {
-            play_sound("score.wav");
-        });
-
+        ctx_->logger()->info("AudioSystem initialized (EventStream mode)");
         return true;
     }
 
     void update() override {
-        // 音频系统主要是事件驱动的
+        // 处理碰撞事件（非阻塞）
+        while (auto evt = collision_subscription_.try_pop()) {
+            play_sound("explosion.wav");
+        }
+
+        // 处理得分事件
+        while (auto evt = score_subscription_.try_pop()) {
+            play_sound("score.wav");
+        }
     }
 
     void shutdown() override {
         ctx_->logger()->info("AudioSystem shutdown - sounds played: " +
                              std::to_string(sounds_played_));
+        collision_subscription_.close();
+        score_subscription_.close();
     }
 
    private:
@@ -427,6 +456,10 @@ class AudioSystem : public SystemBase {
    private:
     ISystemContext* ctx_ = nullptr;
     int sounds_played_ = 0;
+
+    // EventStream 订阅
+    EventSubscription<CollisionEvent> collision_subscription_;
+    EventSubscription<ScoreEvent> score_subscription_;
 };
 
 // ============================================================================
@@ -444,18 +477,26 @@ class GameLogicSystem : public SystemBase {
 
     bool initialize(ISystemContext* ctx) override {
         ctx_ = ctx;
-        ctx_->logger()->info("GameLogicSystem initialized");
 
-        // 订阅碰撞事件
-        ctx->event_bus()->subscribe<CollisionEvent>([this](const CollisionEvent& evt) {
-            on_collision(evt);
-        });
+        // 订阅碰撞事件（EventStream 方式）
+        collision_subscription_ = ctx_->event_stream()->get_stream<CollisionEvent>()->subscribe();
 
+        // 获取发布流
+        score_stream_ = ctx_->event_stream()->get_stream<ScoreEvent>();
+        state_stream_ = ctx_->event_stream()->get_stream<GameStateEvent>();
+        spawn_stream_ = ctx_->event_stream()->get_stream<EntitySpawnEvent>();
+
+        ctx_->logger()->info("GameLogicSystem initialized (EventStream mode)");
         return true;
     }
 
     void update() override {
         frame_count_++;
+
+        // 处理碰撞事件
+        while (auto evt = collision_subscription_.try_pop()) {
+            on_collision(*evt);
+        }
 
         switch (state_) {
             case GameState::loading:
@@ -476,6 +517,7 @@ class GameLogicSystem : public SystemBase {
     }
 
     void shutdown() override {
+        collision_subscription_.close();
         ctx_->logger()->info("GameLogicSystem shutdown - final score: " +
                              std::to_string(score_));
     }
@@ -519,14 +561,14 @@ class GameLogicSystem : public SystemBase {
                              " -> " + states[static_cast<int>(new_state)]);
 
         GameStateEvent evt{old_state, new_state};
-        ctx_->event_bus()->publish(evt);
+        state_stream_->publish(evt);  // 使用 EventStream
     }
 
     void start_game() {
         // 生成玩家
         int player_id = entities_->spawn("player", 400, 500);
         EntitySpawnEvent evt{player_id, "player", 400, 500};
-        ctx_->event_bus()->publish(evt);
+        spawn_stream_->publish(evt);  // 使用 EventStream
 
         ctx_->logger()->info("Player spawned at center");
 
@@ -549,7 +591,7 @@ class GameLogicSystem : public SystemBase {
             enemy->vy = 30.0f;
 
             EntitySpawnEvent evt{id, "enemy", x, 50};
-            ctx_->event_bus()->publish(evt);
+            spawn_stream_->publish(evt);  // 使用 EventStream
         }
     }
 
@@ -559,7 +601,7 @@ class GameLogicSystem : public SystemBase {
             score_ += 100;
 
             ScoreEvent score_evt{1, 100, score_};
-            ctx_->event_bus()->publish(score_evt);
+            score_stream_->publish(score_evt);  // 使用 EventStream
 
             ctx_->logger()->info("Enemy destroyed! Score: " + std::to_string(score_));
         }
@@ -571,6 +613,12 @@ class GameLogicSystem : public SystemBase {
     GameState state_;
     int frame_count_ = 0;
     int score_ = 0;
+
+    // EventStream 订阅和发布
+    EventSubscription<CollisionEvent> collision_subscription_;
+    std::shared_ptr<EventStream<ScoreEvent>> score_stream_;
+    std::shared_ptr<EventStream<GameStateEvent>> state_stream_;
+    std::shared_ptr<EventStream<EntitySpawnEvent>> spawn_stream_;
 };
 
 // ============================================================================

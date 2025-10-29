@@ -135,7 +135,8 @@ class IEventBusStream {
 
    protected:
     virtual std::shared_ptr<void> get_stream_impl(std::type_index type) = 0;
-    virtual std::shared_ptr<void> create_stream_impl(std::type_index type) = 0;
+    virtual std::shared_ptr<void> get_or_create_stream_impl(std::type_index type,
+                                                            std::shared_ptr<void> new_stream) = 0;
 };
 
 // ========================================
@@ -372,13 +373,22 @@ std::size_t EventStream<T>::subscriber_count() const {
 template <Event T>
 std::shared_ptr<EventStream<T>> IEventBusStream::get_stream() {
     auto type = std::type_index(typeid(T));
-    auto stream = get_stream_impl(type);
 
-    if (!stream) {
-        stream = create_stream_impl(type);
+    // Fast path: check if stream already exists (lock-free read in most implementations)
+    auto stream = get_stream_impl(type);
+    if (stream) {
+        return std::static_pointer_cast<EventStream<T>>(stream);
     }
 
-    return std::static_pointer_cast<EventStream<T>>(stream);
+    // Slow path: need to create stream
+    // Create outside lock to minimize lock duration
+    auto new_stream = std::make_shared<EventStream<T>>();
+
+    // Atomically check-and-insert (implementation holds lock)
+    // If another thread created it first, returns the existing one
+    auto registered = get_or_create_stream_impl(type, new_stream);
+
+    return std::static_pointer_cast<EventStream<T>>(registered);
 }
 
 // ========================================
@@ -390,5 +400,8 @@ template <Event T>
 std::shared_ptr<EventStream<T>> create_event_stream(std::size_t max_queue_size = 256) {
     return std::make_shared<EventStream<T>>();
 }
+
+// Create an event bus stream (central registry for all event streams)
+std::unique_ptr<IEventBusStream> create_event_bus_stream();
 
 }  // namespace Corona::Kernel

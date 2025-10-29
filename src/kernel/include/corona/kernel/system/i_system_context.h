@@ -7,6 +7,7 @@ namespace Corona::Kernel {
 // 前向声明
 class ILogger;
 class IEventBus;
+class IEventBusStream;
 class IVirtualFileSystem;
 class IPluginManager;
 class ISystem;
@@ -19,6 +20,7 @@ class ISystemContext {
     // 访问内核服务
     virtual ILogger* logger() = 0;
     virtual IEventBus* event_bus() = 0;
+    virtual IEventBusStream* event_stream() = 0;
     virtual IVirtualFileSystem* vfs() = 0;
     virtual IPluginManager* plugin_manager() = 0;
 

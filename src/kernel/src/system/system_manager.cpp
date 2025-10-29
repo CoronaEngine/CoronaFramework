@@ -31,6 +31,10 @@ class SystemContext : public ISystemContext {
         return KernelContext::instance().event_bus();
     }
 
+    IEventBusStream* event_stream() override {
+        return KernelContext::instance().event_stream();
+    }
+
     IVirtualFileSystem* vfs() override {
         return KernelContext::instance().vfs();
     }

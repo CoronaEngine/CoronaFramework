@@ -1,11 +1,4 @@
 # ========================================
-# Basic Example
-# ========================================
-add_executable(basic_example basic/main.cpp)
-target_link_libraries(basic_example PRIVATE corona::kernel corona::pal)
-target_include_directories(basic_example PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-
-# ========================================
 # 01 - EventBus Example
 # ========================================
 add_executable(01_event_bus 01_event_bus/main.cpp)
