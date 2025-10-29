@@ -231,8 +231,8 @@ class SystemBase : public ISystem {
     mutable std::mutex stats_mutex_;
     std::atomic<std::uint64_t> total_frames_;
     double total_frame_time_;  // 秒
-    float max_frame_time_;      // 毫秒
-    int stats_window_size_;     // 滑动窗口大小（保留用于未来优化）
+    float max_frame_time_;     // 毫秒
+    int stats_window_size_;    // 滑动窗口大小（保留用于未来优化）
 };
 
 }  // namespace Corona::Kernel

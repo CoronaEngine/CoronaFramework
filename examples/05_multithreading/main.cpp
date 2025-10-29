@@ -39,7 +39,7 @@ struct StatisticsRequest {
 // ========================================
 
 class WorkerSystem : public SystemBase {
-public:
+   public:
     explicit WorkerSystem(int worker_id) : worker_id_(worker_id) {
         name_ = "WorkerSystem_" + std::to_string(worker_id);
     }
@@ -50,14 +50,14 @@ public:
 
     bool initialize(ISystemContext* ctx) override {
         ctx_ = ctx;
-        
+
         // 订阅工作任务
         ctx->event_bus()->subscribe<WorkTask>([this](const WorkTask& task) {
             if (task.worker_id == worker_id_ || task.worker_id == -1) {
                 process_task(task);
             }
         });
-        
+
         return true;
     }
 
@@ -70,24 +70,23 @@ public:
         ctx_->logger()->info(name_ + " completed " + std::to_string(tasks_completed_) + " tasks");
     }
 
-private:
+   private:
     void process_task(const WorkTask& task) {
         auto start = std::chrono::high_resolution_clock::now();
-        
+
         // 模拟工作负载
         std::this_thread::sleep_for(std::chrono::milliseconds(50 + (task.task_id % 50)));
-        
+
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration<double, std::milli>(end - start).count();
-        
+
         tasks_completed_++;
-        
+
         // 发布完成事件
         ctx_->event_bus()->publish(TaskCompleted{
             task.task_id,
             worker_id_,
-            duration
-        });
+            duration});
     }
 
     ISystemContext* ctx_ = nullptr;
@@ -101,19 +100,19 @@ private:
 // ========================================
 
 class StatisticsSystem : public SystemBase {
-public:
+   public:
     std::string_view get_name() const override { return "StatisticsSystem"; }
     int get_priority() const override { return 10; }
     int get_target_fps() const override { return 1; }
 
     bool initialize(ISystemContext* ctx) override {
         ctx_ = ctx;
-        
+
         // 订阅任务完成事件
         ctx->event_bus()->subscribe<TaskCompleted>([this](const TaskCompleted& evt) {
             total_tasks_++;
             total_time_ += evt.execution_time_ms;
-            
+
             if (evt.execution_time_ms > max_time_) {
                 max_time_ = evt.execution_time_ms;
             }
@@ -121,12 +120,12 @@ public:
                 min_time_ = evt.execution_time_ms;
             }
         });
-        
+
         // 订阅统计请求
         ctx->event_bus()->subscribe<StatisticsRequest>([this](const StatisticsRequest&) {
             print_statistics();
         });
-        
+
         return true;
     }
 
@@ -139,7 +138,7 @@ public:
         print_statistics();
     }
 
-private:
+   private:
     void print_statistics() {
         if (total_tasks_ > 0) {
             double avg = total_time_ / total_tasks_;
@@ -184,7 +183,7 @@ int main() {
     std::cout << "  Multiple threads publishing events simultaneously..." << std::endl;
 
     std::atomic<int> event_count{0};
-    
+
     // 订阅者
     event_bus->subscribe<WorkTask>([&event_count](const WorkTask& task) {
         event_count++;
@@ -198,8 +197,7 @@ int main() {
                 event_bus->publish(WorkTask{
                     i * 250 + j,
                     i,
-                    "Task from thread " + std::to_string(i)
-                });
+                    "Task from thread " + std::to_string(i)});
             }
         });
     }
@@ -253,9 +251,8 @@ int main() {
         event_bus->publish(WorkTask{
             i,
             i % 4,  // 轮流分配给不同的worker
-            "Task " + std::to_string(i)
-        });
-        
+            "Task " + std::to_string(i)});
+
         // 稍微延迟以避免队列溢出
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -282,9 +279,8 @@ int main() {
         event_bus->publish(WorkTask{
             100 + i,
             -1,  // -1 表示所有worker都处理
-            "Broadcast task " + std::to_string(i)
-        });
-        
+            "Broadcast task " + std::to_string(i)});
+
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
@@ -304,7 +300,7 @@ int main() {
     // 清理
     // ========================================
     std::cout << "[Cleanup] Stopping systems..." << std::endl;
-    
+
     system_manager->stop_all();
     system_manager->shutdown_all();
     kernel.shutdown();

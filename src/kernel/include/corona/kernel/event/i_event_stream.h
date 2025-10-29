@@ -19,9 +19,9 @@ namespace Corona::Kernel {
 
 // Backpressure policy when queue is full
 enum class BackpressurePolicy {
-    Block,        // Block publisher until space available
-    DropOldest,   // Remove oldest event and add new one
-    DropNewest    // Drop new event if queue is full
+    Block,       // Block publisher until space available
+    DropOldest,  // Remove oldest event and add new one
+    DropNewest   // Drop new event if queue is full
 };
 
 struct EventStreamOptions {
@@ -103,7 +103,7 @@ class EventStream {
 
    private:
     friend class EventSubscription<T>;
-    
+
     struct SubscriberState {
         std::size_t id;
         EventStreamOptions options;

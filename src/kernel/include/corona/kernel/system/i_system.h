@@ -44,17 +44,17 @@ class ISystem {
     virtual SystemState get_state() const = 0;
 
     // 线程控制
-    virtual void start() = 0;    // 启动系统线程
-    virtual void pause() = 0;    // 暂停系统
-    virtual void resume() = 0;   // 恢复系统
-    virtual void stop() = 0;     // 停止系统线程
+    virtual void start() = 0;   // 启动系统线程
+    virtual void pause() = 0;   // 暂停系统
+    virtual void resume() = 0;  // 恢复系统
+    virtual void stop() = 0;    // 停止系统线程
 
     // 性能统计
-    virtual float get_actual_fps() const = 0;           // 获取实际 FPS
-    virtual float get_average_frame_time() const = 0;   // 获取平均帧时间（毫秒）
-    virtual float get_max_frame_time() const = 0;       // 获取最大帧时间（毫秒）
-    virtual std::uint64_t get_total_frames() const = 0; // 获取总帧数
-    virtual void reset_stats() = 0;                     // 重置统计信息
+    virtual float get_actual_fps() const = 0;            // 获取实际 FPS
+    virtual float get_average_frame_time() const = 0;    // 获取平均帧时间（毫秒）
+    virtual float get_max_frame_time() const = 0;        // 获取最大帧时间（毫秒）
+    virtual std::uint64_t get_total_frames() const = 0;  // 获取总帧数
+    virtual void reset_stats() = 0;                      // 重置统计信息
 };
 
 }  // namespace Corona::Kernel

@@ -18,13 +18,13 @@ using DestroyPluginFunc = void (*)(IPlugin*);
 class PluginDeleter {
    public:
     explicit PluginDeleter(DestroyPluginFunc destroy_func) : destroy_func_(destroy_func) {}
-    
+
     void operator()(IPlugin* plugin) const {
         if (plugin && destroy_func_) {
             destroy_func_(plugin);
         }
     }
-    
+
    private:
     DestroyPluginFunc destroy_func_;
 };

@@ -1,11 +1,10 @@
-#include "../test_framework.h"
-
 #include <atomic>
 #include <chrono>
 #include <memory>
 #include <thread>
 #include <vector>
 
+#include "../test_framework.h"
 #include "corona/kernel/core/i_logger.h"
 #include "corona/kernel/core/kernel_context.h"
 

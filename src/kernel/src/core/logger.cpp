@@ -1,14 +1,14 @@
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <memory>
 #include <mutex>
-#include <vector>
 #include <queue>
 #include <thread>
-#include <condition_variable>
-#include <atomic>
+#include <vector>
 
 #include "corona/kernel/core/i_logger.h"
 
@@ -78,8 +78,8 @@ class ConsoleSink : public ISink {
         // Use std::cout to print
         std::cout << time_buffer
                   << " [" << level_to_string(msg.level) << "]"
-                  << " [" << msg.location.file_name() 
-                  << ":" << msg.location.line() 
+                  << " [" << msg.location.file_name()
+                  << ":" << msg.location.line()
                   << ":" << msg.location.column() << "]"
                   << " " << msg.message
                   << std::endl;
@@ -111,7 +111,6 @@ class AsyncFileSink : public ISink {
         : min_level_(LogLevel::trace),
           file_(std::string(filename), std::ios::out | std::ios::app),
           running_(true) {
-        
         // 启动后台写入线程
         worker_thread_ = std::thread(&AsyncFileSink::process_queue, this);
     }
@@ -123,11 +122,11 @@ class AsyncFileSink : public ISink {
             running_ = false;
         }
         cv_.notify_one();
-        
+
         if (worker_thread_.joinable()) {
             worker_thread_.join();
         }
-        
+
         // 确保所有日志都已写入
         file_.flush();
         file_.close();
@@ -150,7 +149,7 @@ class AsyncFileSink : public ISink {
         // 等待队列清空
         std::unique_lock<std::mutex> lock(queue_mutex_);
         cv_.wait(lock, [this] { return message_queue_.empty() || !running_; });
-        
+
         // 刷新文件
         if (file_.is_open()) {
             file_.flush();
@@ -171,25 +170,25 @@ class AsyncFileSink : public ISink {
     void process_queue() {
         while (running_) {
             std::unique_lock<std::mutex> lock(queue_mutex_);
-            
+
             // 等待新消息或停止信号
             cv_.wait(lock, [this] { return !message_queue_.empty() || !running_; });
-            
+
             // 批量处理消息以提高性能
             while (!message_queue_.empty()) {
                 LogMessage msg = message_queue_.front();
                 message_queue_.pop();
-                
+
                 // 解锁后写入，避免阻塞新日志入队
                 lock.unlock();
                 write_to_file(msg);
                 lock.lock();
             }
-            
+
             // 通知 flush 等待者
             cv_.notify_all();
         }
-        
+
         // 线程退出前处理剩余消息
         std::lock_guard<std::mutex> lock(queue_mutex_);
         while (!message_queue_.empty()) {
@@ -210,8 +209,8 @@ class AsyncFileSink : public ISink {
         // Write to file
         file_ << time_buffer
               << " [" << level_to_string(msg.level) << "]"
-              << " [" << msg.location.file_name() 
-              << ":" << msg.location.line() 
+              << " [" << msg.location.file_name()
+              << ":" << msg.location.line()
               << ":" << msg.location.column() << "]"
               << " " << msg.message
               << std::endl;
@@ -219,12 +218,12 @@ class AsyncFileSink : public ISink {
 
     LogLevel min_level_;
     std::ofstream file_;
-    
+
     std::queue<LogMessage> message_queue_;
     std::mutex queue_mutex_;
     mutable std::mutex level_mutex_;
     std::condition_variable cv_;
-    
+
     std::atomic<bool> running_;
     std::thread worker_thread_;
 };

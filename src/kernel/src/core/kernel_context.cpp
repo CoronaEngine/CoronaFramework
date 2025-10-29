@@ -22,7 +22,7 @@ KernelContext& KernelContext::instance() {
 
 bool KernelContext::initialize() {
     std::lock_guard<std::mutex> lock(init_mutex);
-    
+
     if (initialized_) {
         return true;
     }
@@ -61,7 +61,7 @@ bool KernelContext::initialize() {
 
 void KernelContext::shutdown() {
     std::lock_guard<std::mutex> lock(init_mutex);
-    
+
     if (!initialized_) {
         return;
     }

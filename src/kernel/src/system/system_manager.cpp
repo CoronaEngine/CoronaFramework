@@ -1,17 +1,16 @@
-#include "corona/kernel/system/i_system_manager.h"
-
 #include <algorithm>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <string>
 
-#include "corona/kernel/event/i_event_bus.h"
 #include "corona/kernel/core/i_logger.h"
 #include "corona/kernel/core/i_plugin_manager.h"
-#include "corona/kernel/system/i_system_context.h"
 #include "corona/kernel/core/i_vfs.h"
 #include "corona/kernel/core/kernel_context.h"
+#include "corona/kernel/event/i_event_bus.h"
+#include "corona/kernel/system/i_system_context.h"
+#include "corona/kernel/system/i_system_manager.h"
 #include "corona/kernel/system/system_base.h"
 
 namespace Corona::Kernel {
@@ -77,7 +76,7 @@ class SystemManager : public ISystemManager {
 
     void register_system(std::shared_ptr<ISystem> system) override {
         std::lock_guard<std::mutex> lock(mutex_);
-        
+
         // 设置上下文（如果是 SystemBase）
         auto* base = dynamic_cast<SystemBase*>(system.get());
         if (base) {
@@ -195,7 +194,7 @@ class SystemManager : public ISystemManager {
 
     SystemStats get_system_stats(std::string_view name) override {
         std::lock_guard<std::mutex> lock(mutex_);
-        
+
         auto sys = get_system_unlocked(name);
         if (!sys) {
             return SystemStats{};
@@ -216,7 +215,7 @@ class SystemManager : public ISystemManager {
 
     std::vector<SystemStats> get_all_stats() override {
         std::lock_guard<std::mutex> lock(mutex_);
-        
+
         std::vector<SystemStats> all_stats;
         all_stats.reserve(systems_.size());
 

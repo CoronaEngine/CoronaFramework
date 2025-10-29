@@ -1,10 +1,11 @@
-#include "../test_framework.h"
-#include "corona/kernel/event/i_event_stream.h"
-#include <thread>
 #include <atomic>
 #include <chrono>
-#include <string>
 #include <iostream>
+#include <string>
+#include <thread>
+
+#include "../test_framework.h"
+#include "corona/kernel/event/i_event_stream.h"
 
 using namespace Corona::Kernel;
 using namespace std::chrono_literals;
@@ -53,10 +54,10 @@ TEST(EventStream, MultipleSubscribers) {
 
     ASSERT_TRUE(e1.has_value());
     ASSERT_EQ(e1->value, 100);
-    
+
     ASSERT_TRUE(e2.has_value());
     ASSERT_EQ(e2->value, 100);
-    
+
     ASSERT_TRUE(e3.has_value());
     ASSERT_EQ(e3->value, 100);
 }
@@ -71,7 +72,7 @@ TEST(EventStream, RAIISubscription) {
 
     // Give a moment for cleanup
     std::this_thread::sleep_for(1ms);
-    
+
     // Note: subscriber count may still be 1 until next publish
     // This is by design for performance reasons
 }
@@ -333,7 +334,7 @@ TEST(EventStream, PublishWhileConsuming) {
             }
             std::this_thread::yield();
         }
-        
+
         // Consume any remaining events
         while (auto event = sub.try_pop()) {
             consumed++;
@@ -582,7 +583,7 @@ TEST(EventStream, RapidSubscribeUnsubscribe) {
     }  // sub destroyed
 
     std::this_thread::sleep_for(10ms);
-    
+
     // Should still work after many subscribe/unsubscribe cycles
     auto sub = stream.subscribe();
     stream.publish(SimpleEvent{777});
@@ -656,9 +657,9 @@ TEST(EventStream, PublishAfterAllSubscribersClose) {
     {
         auto sub1 = stream.subscribe();
         auto sub2 = stream.subscribe();
-        
+
         stream.publish(SimpleEvent{100});
-        
+
         sub1.close();
         sub2.close();
     }
@@ -667,7 +668,7 @@ TEST(EventStream, PublishAfterAllSubscribersClose) {
 
     // Publishing after all subscribers close should not crash
     stream.publish(SimpleEvent{200});
-    
+
     // New subscriber should not receive old events
     auto new_sub = stream.subscribe();
     auto event = new_sub.try_pop();

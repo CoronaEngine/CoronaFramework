@@ -1,9 +1,8 @@
-#include "../test_framework.h"
-
 #include <chrono>
 #include <memory>
 #include <thread>
 
+#include "../test_framework.h"
 #include "corona/kernel/core/kernel_context.h"
 #include "corona/kernel/system/system_base.h"
 
@@ -15,7 +14,7 @@ using namespace CoronaTest;
 // ========================================
 
 class FastSystem : public SystemBase {
-public:
+   public:
     std::string_view get_name() const override { return "FastSystem"; }
     int get_priority() const override { return 50; }
     int get_target_fps() const override { return 100; }
@@ -32,7 +31,7 @@ public:
 };
 
 class SlowSystem : public SystemBase {
-public:
+   public:
     std::string_view get_name() const override { return "SlowSystem"; }
     int get_priority() const override { return 50; }
     int get_target_fps() const override { return 10; }
@@ -50,7 +49,7 @@ public:
 };
 
 class VariableSystem : public SystemBase {
-public:
+   public:
     VariableSystem() : call_count_(0) {}
 
     std::string_view get_name() const override { return "VariableSystem"; }
@@ -65,14 +64,14 @@ public:
 
     void update() override {
         call_count_++;
-        
+
         // 每隔几帧模拟一次慢更新
         if (call_count_ % 10 == 0) {
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
     }
 
-private:
+   private:
     int call_count_;
 };
 
@@ -99,17 +98,17 @@ TEST(PerformanceStats, BasicStats) {
 
     // 验证统计信息
     auto stats = system_manager->get_system_stats("FastSystem");
-    
+
     ASSERT_EQ(stats.name, "FastSystem");
     ASSERT_EQ(stats.state, SystemState::stopped);
     ASSERT_EQ(stats.target_fps, 100);
-    
+
     // 验证统计信息被收集（FPS > 0 表示系统在运行）
     ASSERT_GT(stats.actual_fps, 0.0f);
-    
+
     // 总帧数应该大于 0
     ASSERT_GT(stats.total_frames, 0);
-    
+
     // 平均帧时间应该 > 0
     ASSERT_GT(stats.average_frame_time_ms, 0.0f);
 
@@ -135,11 +134,11 @@ TEST(PerformanceStats, SlowSystemStats) {
     slow_system->stop();
 
     auto stats = system_manager->get_system_stats("SlowSystem");
-    
+
     // 慢系统应该约 10 FPS（允许较大误差，因为有 50ms sleep）
     ASSERT_GT(stats.actual_fps, 5.0f);
     ASSERT_LT(stats.actual_fps, 20.0f);
-    
+
     // 平均帧时间应该 > 50ms（因为有 50ms sleep），但系统开销可能较低
     ASSERT_GT(stats.average_frame_time_ms, 20.0f);
 
@@ -165,10 +164,10 @@ TEST(PerformanceStats, MaxFrameTime) {
     variable_system->stop();
 
     auto stats = system_manager->get_system_stats("VariableSystem");
-    
+
     // 最大帧时间应该 > 20ms（慢帧）
     ASSERT_GT(stats.max_frame_time_ms, 15.0f);
-    
+
     // 但平均帧时间应该较小（大部分是快帧）
     ASSERT_LT(stats.average_frame_time_ms, 10.0f);
 
@@ -217,7 +216,7 @@ TEST(PerformanceStats, GetAllStats) {
 
     system_manager->register_system(system1);
     system_manager->register_system(system2);
-    
+
     ASSERT_TRUE(system_manager->initialize_all());
     system_manager->start_all();
 
@@ -267,22 +266,22 @@ TEST(PerformanceStats, StatsWhilePaused) {
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
     auto stats_before_pause = system_manager->get_system_stats("FastSystem");
-    
+
     // 暂停
     fast_system->pause();
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
     auto stats_during_pause = system_manager->get_system_stats("FastSystem");
-    
+
     // 暂停期间帧数不应该增加
     ASSERT_EQ(stats_before_pause.total_frames, stats_during_pause.total_frames);
-    
+
     // 恢复
     fast_system->resume();
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
     auto stats_after_resume = system_manager->get_system_stats("FastSystem");
-    
+
     // 恢复后帧数应该继续增加
     ASSERT_GT(stats_after_resume.total_frames, stats_during_pause.total_frames);
 

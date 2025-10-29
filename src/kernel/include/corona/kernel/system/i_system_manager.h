@@ -10,14 +10,14 @@ namespace Corona::Kernel {
 
 // 系统统计信息
 struct SystemStats {
-    std::string_view name;                // 系统名称
-    SystemState state;                    // 系统状态
-    int target_fps;                       // 目标帧率
-    float actual_fps;                     // 实际帧率
-    float average_frame_time_ms;          // 平均帧时间（毫秒）
-    float max_frame_time_ms;              // 最大帧时间（毫秒）
-    std::uint64_t total_frames;           // 总帧数
-    std::uint64_t total_update_calls;     // 总更新次数
+    std::string_view name;             // 系统名称
+    SystemState state;                 // 系统状态
+    int target_fps;                    // 目标帧率
+    float actual_fps;                  // 实际帧率
+    float average_frame_time_ms;       // 平均帧时间（毫秒）
+    float max_frame_time_ms;           // 最大帧时间（毫秒）
+    std::uint64_t total_frames;        // 总帧数
+    std::uint64_t total_update_calls;  // 总更新次数
 };
 
 // 系统管理器接口

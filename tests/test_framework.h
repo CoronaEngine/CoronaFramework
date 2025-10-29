@@ -1,10 +1,10 @@
 // 简单的测试框架
 #pragma once
+#include <chrono>
+#include <functional>
 #include <iostream>
 #include <string>
-#include <functional>
 #include <vector>
-#include <chrono>
 
 namespace CoronaTest {
 
@@ -16,7 +16,7 @@ struct TestResult {
 };
 
 class TestRunner {
-public:
+   public:
     static TestRunner& instance() {
         static TestRunner runner;
         return runner;
@@ -36,7 +36,7 @@ public:
 
         for (const auto& [name, test_func] : tests_) {
             std::cout << "[ RUN      ] " << name << "\n";
-            
+
             auto start = std::chrono::high_resolution_clock::now();
             bool test_passed = false;
             std::string error_message;
@@ -73,82 +73,82 @@ public:
         return failed > 0 ? 1 : 0;
     }
 
-private:
+   private:
     std::vector<std::pair<std::string, std::function<void()>>> tests_;
 };
 
 class TestRegistrar {
-public:
+   public:
     TestRegistrar(const std::string& name, std::function<void()> test_func) {
         TestRunner::instance().add_test(name, test_func);
     }
 };
 
 // 测试宏
-#define TEST(test_suite, test_name) \
-    void test_suite##_##test_name(); \
+#define TEST(test_suite, test_name)                                        \
+    void test_suite##_##test_name();                                       \
     static CoronaTest::TestRegistrar test_suite##_##test_name##_registrar( \
-        #test_suite "." #test_name, test_suite##_##test_name); \
+        #test_suite "." #test_name, test_suite##_##test_name);             \
     void test_suite##_##test_name()
 
-#define ASSERT_TRUE(condition) \
-    do { \
-        if (!(condition)) { \
+#define ASSERT_TRUE(condition)                                         \
+    do {                                                               \
+        if (!(condition)) {                                            \
             throw std::runtime_error("Assertion failed: " #condition); \
-        } \
+        }                                                              \
     } while (0)
 
 #define ASSERT_FALSE(condition) ASSERT_TRUE(!(condition))
 
-#define ASSERT_EQ(a, b) \
-    do { \
-        if ((a) != (b)) { \
+#define ASSERT_EQ(a, b)                                                  \
+    do {                                                                 \
+        if ((a) != (b)) {                                                \
             throw std::runtime_error("Assertion failed: " #a " == " #b); \
-        } \
+        }                                                                \
     } while (0)
 
-#define ASSERT_NE(a, b) \
-    do { \
-        if ((a) == (b)) { \
+#define ASSERT_NE(a, b)                                                  \
+    do {                                                                 \
+        if ((a) == (b)) {                                                \
             throw std::runtime_error("Assertion failed: " #a " != " #b); \
-        } \
+        }                                                                \
     } while (0)
 
-#define ASSERT_GT(a, b) \
-    do { \
-        if ((a) <= (b)) { \
+#define ASSERT_GT(a, b)                                                 \
+    do {                                                                \
+        if ((a) <= (b)) {                                               \
             throw std::runtime_error("Assertion failed: " #a " > " #b); \
-        } \
+        }                                                               \
     } while (0)
 
-#define ASSERT_GE(a, b) \
-    do { \
-        if ((a) < (b)) { \
+#define ASSERT_GE(a, b)                                                  \
+    do {                                                                 \
+        if ((a) < (b)) {                                                 \
             throw std::runtime_error("Assertion failed: " #a " >= " #b); \
-        } \
+        }                                                                \
     } while (0)
 
-#define ASSERT_LT(a, b) \
-    do { \
-        if ((a) >= (b)) { \
+#define ASSERT_LT(a, b)                                                 \
+    do {                                                                \
+        if ((a) >= (b)) {                                               \
             throw std::runtime_error("Assertion failed: " #a " < " #b); \
-        } \
+        }                                                               \
     } while (0)
 
-#define ASSERT_LE(a, b) \
-    do { \
-        if ((a) > (b)) { \
+#define ASSERT_LE(a, b)                                                  \
+    do {                                                                 \
+        if ((a) > (b)) {                                                 \
             throw std::runtime_error("Assertion failed: " #a " <= " #b); \
-        } \
+        }                                                                \
     } while (0)
 
-#define ASSERT_NO_THROW(expression) \
-    do { \
-        try { \
-            expression; \
-        } catch (...) { \
+#define ASSERT_NO_THROW(expression)                                                        \
+    do {                                                                                   \
+        try {                                                                              \
+            expression;                                                                    \
+        } catch (...) {                                                                    \
             throw std::runtime_error("Exception thrown when none expected: " #expression); \
-        } \
+        }                                                                                  \
     } while (0)
 
 }  // namespace CoronaTest

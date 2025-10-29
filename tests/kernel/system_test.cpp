@@ -1,11 +1,10 @@
-#include "../test_framework.h"
-
 #include <atomic>
 #include <chrono>
 #include <memory>
 #include <thread>
 #include <vector>
 
+#include "../test_framework.h"
 #include "corona/kernel/core/kernel_context.h"
 #include "corona/kernel/system/system_base.h"
 
@@ -17,7 +16,7 @@ using namespace CoronaTest;
 // ========================================
 
 class CounterSystem : public SystemBase {
-public:
+   public:
     CounterSystem() : update_count_(0) {}
 
     std::string_view get_name() const override { return "CounterSystem"; }
@@ -38,12 +37,12 @@ public:
         return update_count_.load(std::memory_order_relaxed);
     }
 
-private:
+   private:
     std::atomic<int> update_count_;
 };
 
 class SlowSystem : public SystemBase {
-public:
+   public:
     std::string_view get_name() const override { return "SlowSystem"; }
     int get_priority() const override { return 10; }
     int get_target_fps() const override { return 10; }  // 慢速系统
@@ -190,7 +189,7 @@ TEST(SystemManager, InitializePriority) {
 
     // 创建多个系统（不同优先级）
     auto low_priority = std::make_shared<CounterSystem>();  // 优先级 50
-    auto high_priority = std::make_shared<SlowSystem>();     // 优先级 10
+    auto high_priority = std::make_shared<SlowSystem>();    // 优先级 10
 
     // 以相反的顺序注册
     system_manager->register_system(low_priority);
@@ -280,7 +279,7 @@ TEST(SystemManager, PauseResumeAll) {
 // ========================================
 
 class ContextTestSystem : public SystemBase {
-public:
+   public:
     ContextTestSystem() : logger_accessed_(false), event_bus_accessed_(false) {}
 
     std::string_view get_name() const override { return "ContextTestSystem"; }
@@ -318,7 +317,7 @@ public:
     bool has_accessed_logger() const { return logger_accessed_; }
     bool has_accessed_event_bus() const { return event_bus_accessed_; }
 
-private:
+   private:
     std::atomic<bool> logger_accessed_;
     std::atomic<bool> event_bus_accessed_;
 };
@@ -417,7 +416,7 @@ TEST(SystemManager, GetNonExistentSystem) {
     ASSERT_TRUE(kernel.initialize());
 
     auto system_manager = kernel.system_manager();
-    
+
     // 获取不存在的系统应该返回 nullptr
     auto system = system_manager->get_system("NonExistentSystem");
     ASSERT_TRUE(system == nullptr);
@@ -449,7 +448,7 @@ TEST(SystemManager, InitializeEmptyManager) {
     ASSERT_TRUE(kernel.initialize());
 
     auto system_manager = kernel.system_manager();
-    
+
     // 初始化空的 SystemManager 应该成功
     ASSERT_TRUE(system_manager->initialize_all());
 
@@ -464,7 +463,7 @@ TEST(SystemManager, StartWithoutInitialize) {
     auto counter_system = std::make_shared<CounterSystem>();
 
     system_manager->register_system(counter_system);
-    
+
     // 不调用 initialize_all 直接 start_all
     system_manager->start_all();
 
@@ -472,7 +471,7 @@ TEST(SystemManager, StartWithoutInitialize) {
 
     // 系统应该没有运行或没有更新（因为未初始化）
     system_manager->stop_all();
-    
+
     kernel.shutdown();
 }
 
@@ -484,7 +483,7 @@ TEST(SystemManager, MultipleInitializeCalls) {
     auto counter_system = std::make_shared<CounterSystem>();
 
     system_manager->register_system(counter_system);
-    
+
     // 多次调用 initialize_all 应该安全
     ASSERT_TRUE(system_manager->initialize_all());
     ASSERT_TRUE(system_manager->initialize_all());
@@ -503,10 +502,10 @@ TEST(SystemManager, StopWithoutStart) {
 
     system_manager->register_system(counter_system);
     ASSERT_TRUE(system_manager->initialize_all());
-    
+
     // 不启动直接停止
     system_manager->stop_all();
-    
+
     ASSERT_EQ(counter_system->get_state(), SystemState::idle);
 
     system_manager->shutdown_all();
@@ -522,10 +521,10 @@ TEST(SystemManager, PauseWithoutStart) {
 
     system_manager->register_system(counter_system);
     ASSERT_TRUE(system_manager->initialize_all());
-    
+
     // 不启动直接暂停
     system_manager->pause_all();
-    
+
     // 应该不崩溃
     kernel.shutdown();
 }
@@ -761,7 +760,7 @@ TEST(SystemStress, ConcurrentStateChanges) {
     // 并发状态变化可能会导致竞争条件
     // 使用更保守的测试方式
     std::atomic<bool> stop{false};
-    
+
     std::thread worker([&]() {
         for (int j = 0; j < 5 && !stop.load(); ++j) {
             counter_system->start();
@@ -779,7 +778,7 @@ TEST(SystemStress, ConcurrentStateChanges) {
     stop = true;
 
     // 应该不崩溃
-    ASSERT_TRUE(counter_system->get_state() == SystemState::stopped || 
+    ASSERT_TRUE(counter_system->get_state() == SystemState::stopped ||
                 counter_system->get_state() == SystemState::idle);
 
     system_manager->shutdown_all();

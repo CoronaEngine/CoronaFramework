@@ -1,9 +1,8 @@
-#include "../test_framework.h"
-
 #include <chrono>
 #include <memory>
 #include <vector>
 
+#include "../test_framework.h"
 #include "corona/kernel/core/kernel_context.h"
 #include "corona/kernel/event/i_event_bus.h"
 #include "corona/kernel/system/i_system_manager.h"
@@ -17,7 +16,7 @@ using namespace CoronaTest;
 // ========================================
 
 class BenchmarkTimer {
-public:
+   public:
     void start() {
         start_time_ = std::chrono::high_resolution_clock::now();
     }
@@ -27,7 +26,7 @@ public:
         return std::chrono::duration<double, std::milli>(end_time - start_time_).count();
     }
 
-private:
+   private:
     std::chrono::high_resolution_clock::time_point start_time_;
 };
 
@@ -36,10 +35,9 @@ private:
 // ========================================
 
 class BenchmarkSystem : public SystemBase {
-public:
-    explicit BenchmarkSystem(int priority) 
-        : priority_(priority)
-        , name_("BenchmarkSystem_" + std::to_string(priority)) {
+   public:
+    explicit BenchmarkSystem(int priority)
+        : priority_(priority), name_("BenchmarkSystem_" + std::to_string(priority)) {
     }
 
     std::string_view get_name() const override {
@@ -56,7 +54,7 @@ public:
     void shutdown() override {}
     void update() override {}
 
-private:
+   private:
     int priority_;
     std::string name_;
 };
@@ -98,12 +96,12 @@ TEST(Benchmark, EventBusPublishSubscribe) {
     // 输出性能指标
     auto* logger = kernel.logger();
     if (logger) {
-        logger->info("EventBus: Published " + std::to_string(iterations) + 
-                    " events in " + std::to_string(elapsed) + " ms");
-        logger->info("EventBus: Average " + std::to_string(elapsed / iterations) + 
-                    " ms per event");
-        logger->info("EventBus: Throughput " + std::to_string(iterations / elapsed * 1000) + 
-                    " events/sec");
+        logger->info("EventBus: Published " + std::to_string(iterations) +
+                     " events in " + std::to_string(elapsed) + " ms");
+        logger->info("EventBus: Average " + std::to_string(elapsed / iterations) +
+                     " ms per event");
+        logger->info("EventBus: Throughput " + std::to_string(iterations / elapsed * 1000) +
+                     " events/sec");
     }
 
     // 期望:至少每个事件 < 0.1ms (10,000 events/sec)
@@ -146,10 +144,10 @@ TEST(Benchmark, EventBusMultipleSubscribers) {
 
     auto* logger = kernel.logger();
     if (logger) {
-        logger->info("EventBus (100 subscribers): Published " + std::to_string(iterations) + 
-                    " events in " + std::to_string(elapsed) + " ms");
-        logger->info("EventBus: Average " + std::to_string(elapsed / iterations) + 
-                    " ms per event");
+        logger->info("EventBus (100 subscribers): Published " + std::to_string(iterations) +
+                     " events in " + std::to_string(elapsed) + " ms");
+        logger->info("EventBus: Average " + std::to_string(elapsed / iterations) +
+                     " ms per event");
     }
 
     // 期望:即使有100个订阅者,每个事件也应 < 1ms
@@ -170,7 +168,7 @@ TEST(Benchmark, SystemManagerSorting) {
 
     // 创建多个系统(不同优先级)
     const int system_count = 100;
-    
+
     BenchmarkTimer timer;
 
     // 性能测试:注册大量系统(不应该触发排序)
@@ -196,7 +194,7 @@ TEST(Benchmark, SystemManagerSorting) {
 
     // 期望:注册操作应该非常快(不触发排序)
     ASSERT_LT(register_time / system_count, 0.1);  // 每个系统注册 < 0.1ms
-    
+
     // 期望:初始化包含排序,但也应该在合理时间内完成
     ASSERT_LT(init_time, 100.0);  // 100个系统初始化 < 100ms
 
@@ -209,7 +207,7 @@ TEST(Benchmark, SystemManagerRegistration) {
     ASSERT_TRUE(kernel.initialize());
 
     auto* system_manager = kernel.system_manager();
-    
+
     BenchmarkTimer timer;
     const int system_count = 1000;
 
@@ -223,10 +221,10 @@ TEST(Benchmark, SystemManagerRegistration) {
 
     auto* logger = kernel.logger();
     if (logger) {
-        logger->info("SystemManager: Registered " + std::to_string(system_count) + 
-                    " systems in " + std::to_string(elapsed) + " ms");
-        logger->info("SystemManager: Average " + std::to_string(elapsed / system_count) + 
-                    " ms per system");
+        logger->info("SystemManager: Registered " + std::to_string(system_count) +
+                     " systems in " + std::to_string(elapsed) + " ms");
+        logger->info("SystemManager: Average " + std::to_string(elapsed / system_count) +
+                     " ms per system");
     }
 
     // 期望:每个系统注册 < 0.01ms
@@ -262,10 +260,10 @@ TEST(Benchmark, SystemManagerLookup) {
 
     auto* logger = kernel.logger();
     if (logger) {
-        logger->info("SystemManager: " + std::to_string(lookup_count) + 
-                    " lookups in " + std::to_string(elapsed) + " ms");
-        logger->info("SystemManager: Average " + std::to_string(elapsed / lookup_count) + 
-                    " ms per lookup");
+        logger->info("SystemManager: " + std::to_string(lookup_count) +
+                     " lookups in " + std::to_string(elapsed) + " ms");
+        logger->info("SystemManager: Average " + std::to_string(elapsed / lookup_count) +
+                     " ms per lookup");
     }
 
     // 期望:每次查找 < 0.01ms (使用 map O(log n))
@@ -289,16 +287,16 @@ TEST(Benchmark, EventAllocation) {
     timer.start();
     for (int i = 0; i < iterations; ++i) {
         BenchmarkEvent evt{i};
-        (void)evt; // 避免优化掉
+        (void)evt;  // 避免优化掉
     }
     double elapsed = timer.elapsed_ms();
 
     auto* logger = kernel.logger();
     if (logger) {
-        logger->info("Memory: Allocated " + std::to_string(iterations) + 
-                    " events in " + std::to_string(elapsed) + " ms");
-        logger->info("Memory: Average " + std::to_string(elapsed / iterations) + 
-                    " ms per allocation");
+        logger->info("Memory: Allocated " + std::to_string(iterations) +
+                     " events in " + std::to_string(elapsed) + " ms");
+        logger->info("Memory: Average " + std::to_string(elapsed / iterations) +
+                     " ms per allocation");
     }
 
     // 期望:栈分配非常快 < 0.0001ms

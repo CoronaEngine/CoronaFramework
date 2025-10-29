@@ -51,7 +51,7 @@ int main() {
     std::cout << "[Example 1] Basic Stream Subscription" << std::endl;
 
     auto stream1 = create_event_stream<int>();
-    
+
     // 订阅流 - 在单独的线程中处理
     auto sub1 = stream1->subscribe();
     std::thread consumer1([&sub1]() {
@@ -64,7 +64,7 @@ int main() {
     stream1->publish(10);
     stream1->publish(20);
     stream1->publish(30);
-    
+
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     sub1.close();
     consumer1.join();
@@ -76,17 +76,17 @@ int main() {
     std::cout << "[Example 2] Multiple Subscribers" << std::endl;
 
     auto stream2 = create_event_stream<int>();
-    
+
     // 两个订阅者处理同一个流
     auto sub2a = stream2->subscribe();
     auto sub2b = stream2->subscribe();
-    
+
     std::thread consumer2a([&sub2a]() {
         while (auto value = sub2a.wait_for(std::chrono::milliseconds(100))) {
             std::cout << "  Consumer A received: " << *value << std::endl;
         }
     });
-    
+
     std::thread consumer2b([&sub2b]() {
         while (auto value = sub2b.wait_for(std::chrono::milliseconds(100))) {
             std::cout << "  Consumer B received: " << *value << std::endl;
@@ -96,7 +96,7 @@ int main() {
     stream2->publish(5);
     stream2->publish(10);
     stream2->publish(15);
-    
+
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     sub2a.close();
     sub2b.close();
@@ -110,7 +110,7 @@ int main() {
     std::cout << "[Example 3] Manual Filtering" << std::endl;
 
     auto stream3 = create_event_stream<int>();
-    
+
     // 订阅者手动过滤偶数
     auto sub3 = stream3->subscribe();
     std::thread consumer3([&sub3]() {
@@ -124,7 +124,7 @@ int main() {
     for (int i = 1; i <= 10; ++i) {
         stream3->publish(i);
     }
-    
+
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     sub3.close();
     consumer3.join();
@@ -136,7 +136,7 @@ int main() {
     std::cout << "[Example 4] Filter and Transform" << std::endl;
 
     auto stream4 = create_event_stream<int>();
-    
+
     // 订阅者：过滤正数 -> 计算平方
     auto sub4 = stream4->subscribe();
     std::thread consumer4([&sub4]() {
@@ -152,7 +152,7 @@ int main() {
     stream4->publish(3);   // 输出 9
     stream4->publish(0);   // 被过滤掉
     stream4->publish(4);   // 输出 16
-    
+
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     sub4.close();
     consumer4.join();
@@ -164,7 +164,7 @@ int main() {
     std::cout << "[Example 5] Real-world Example - Sensor Data Processing" << std::endl;
 
     auto sensor_stream = create_event_stream<SensorData>();
-    
+
     // 数据处理管道
     auto sensor_sub = sensor_stream->subscribe();
     std::thread sensor_processor([&sensor_sub, logger]() {
@@ -173,21 +173,20 @@ int main() {
             if (data->value < 0 || data->value > 100) {
                 continue;
             }
-            
+
             // 转换：归一化并检测异常
             double normalized = data->value / 100.0;
             bool anomaly = (normalized > 0.9 || normalized < 0.1);
-            
+
             ProcessedData processed{
                 data->sensor_id,
                 normalized,
-                anomaly
-            };
-            
+                anomaly};
+
             // 处理结果
-            std::string msg = "Sensor " + std::to_string(processed.sensor_id) + 
-                            ": " + std::to_string(processed.processed_value);
-            
+            std::string msg = "Sensor " + std::to_string(processed.sensor_id) +
+                              ": " + std::to_string(processed.processed_value);
+
             if (processed.is_anomaly) {
                 msg += " [WARNING] ANOMALY DETECTED!";
                 logger->warning(msg);
@@ -201,9 +200,9 @@ int main() {
     sensor_stream->publish(SensorData{1, 45.5, "C"});
     sensor_stream->publish(SensorData{2, 95.0, "C"});  // 异常值
     sensor_stream->publish(SensorData{1, 50.2, "C"});
-    sensor_stream->publish(SensorData{3, 5.0, "C"});   // 异常值
-    sensor_stream->publish(SensorData{2, 110.0, "C"}); // 超出范围,被过滤
-    
+    sensor_stream->publish(SensorData{3, 5.0, "C"});    // 异常值
+    sensor_stream->publish(SensorData{2, 110.0, "C"});  // 超出范围,被过滤
+
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     sensor_sub.close();
     sensor_processor.join();
@@ -216,27 +215,27 @@ int main() {
 
     auto stream6 = create_event_stream<int>();
     auto sub6 = stream6->subscribe();
-    
+
     // 先发布一些数据
     stream6->publish(100);
     stream6->publish(200);
-    
+
     // 非阻塞读取
     if (auto value = sub6.try_pop()) {
         std::cout << "  Got value: " << *value << std::endl;
     }
-    
+
     if (auto value = sub6.try_pop()) {
         std::cout << "  Got value: " << *value << std::endl;
     }
-    
+
     // 队列为空时返回 nullopt
     if (auto value = sub6.try_pop()) {
         std::cout << "  Got value: " << *value << std::endl;
     } else {
         std::cout << "  Queue is empty" << std::endl;
     }
-    
+
     sub6.close();
     std::cout << std::endl;
 
@@ -247,7 +246,7 @@ int main() {
 
     auto stream7 = create_event_stream<int>();
     auto sub7 = stream7->subscribe();
-    
+
     std::thread producer7([&stream7]() {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
         stream7->publish(1);
@@ -256,7 +255,7 @@ int main() {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
         stream7->publish(3);
     });
-    
+
     std::thread consumer7([&sub7]() {
         for (int i = 0; i < 3; ++i) {
             if (auto value = sub7.wait()) {  // 无限等待
@@ -280,10 +279,10 @@ int main() {
     EventStreamOptions options;
     options.max_queue_size = 3;  // 小缓冲区
     options.policy = BackpressurePolicy::DropOldest;
-    
+
     auto stream8 = create_event_stream<int>();
     auto sub8 = stream8->subscribe(options);
-    
+
     int processed_count = 0;
     std::thread consumer8([&sub8, &processed_count]() {
         while (auto value = sub8.wait_for(std::chrono::milliseconds(200))) {
@@ -313,7 +312,7 @@ int main() {
 
     auto perf_stream = create_event_stream<int>();
     auto perf_sub = perf_stream->subscribe();
-    
+
     std::atomic<int> count{0};
     std::thread perf_consumer([&perf_sub, &count]() {
         while (auto value = perf_sub.wait_for(std::chrono::milliseconds(100))) {
@@ -326,18 +325,18 @@ int main() {
         perf_stream->publish(i);
     }
     auto end = std::chrono::high_resolution_clock::now();
-    
+
     // 等待消费完成
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     perf_sub.close();
     perf_consumer.join();
-    
+
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
-    std::cout << "  Published 10,000 events in " 
+    std::cout << "  Published 10,000 events in "
               << duration.count() << " ms" << std::endl;
     std::cout << "  Processed " << count << " events" << std::endl;
-    std::cout << "  Throughput: " << (10000.0 * 1000.0 / duration.count()) 
+    std::cout << "  Throughput: " << (10000.0 * 1000.0 / duration.count())
               << " events/second" << std::endl;
 
     // 清理

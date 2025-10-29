@@ -55,10 +55,10 @@ int main() {
     // 示例 1: 基本订阅和发布
     // ========================================
     std::cout << "[Example 1] Basic Publish/Subscribe" << std::endl;
-    
+
     // 订阅用户登录事件
     event_bus->subscribe<UserLoginEvent>([](const UserLoginEvent& evt) {
-        std::cout << "  -> User logged in: " << evt.username 
+        std::cout << "  -> User logged in: " << evt.username
                   << " (ID: " << evt.user_id << ")" << std::endl;
     });
 
@@ -74,14 +74,14 @@ int main() {
 
     // 订阅者 1: 记录分数
     event_bus->subscribe<PlayerScoreEvent>([](const PlayerScoreEvent& evt) {
-        std::cout << "  [ScoreLogger] Player " << evt.player_id 
+        std::cout << "  [ScoreLogger] Player " << evt.player_id
                   << " scored " << evt.score << " points" << std::endl;
     });
 
     // 订阅者 2: 检查成就
     event_bus->subscribe<PlayerScoreEvent>([](const PlayerScoreEvent& evt) {
         if (evt.score >= 100) {
-            std::cout << "  [AchievementSystem] [TROPHY] Player " << evt.player_id 
+            std::cout << "  [AchievementSystem] [TROPHY] Player " << evt.player_id
                       << " unlocked 'High Scorer' achievement!" << std::endl;
         }
     });
@@ -105,8 +105,8 @@ int main() {
     std::cout << "[Example 3] Event Logging" << std::endl;
 
     event_bus->subscribe<ConfigChangedEvent>([logger](const ConfigChangedEvent& evt) {
-        logger->info("Config changed: " + evt.key + " = " + evt.new_value + 
-                    " (was: " + evt.old_value + ")");
+        logger->info("Config changed: " + evt.key + " = " + evt.new_value +
+                     " (was: " + evt.old_value + ")");
     });
 
     event_bus->publish(ConfigChangedEvent{"volume", "50", "80"});
@@ -139,7 +139,7 @@ int main() {
     // 性能统计
     // ========================================
     std::cout << "[Performance Test] Publishing 10,000 events..." << std::endl;
-    
+
     int event_count = 0;
     event_bus->subscribe<PlayerScoreEvent>([&event_count](const PlayerScoreEvent&) {
         event_count++;
@@ -152,14 +152,14 @@ int main() {
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
-    std::cout << "  Published and processed " << event_count << " events in " 
+    std::cout << "  Published and processed " << event_count << " events in "
               << duration.count() << " ms" << std::endl;
-    std::cout << "  Average: " << (duration.count() * 1000.0 / event_count) 
+    std::cout << "  Average: " << (duration.count() * 1000.0 / event_count)
               << " microseconds per event" << std::endl;
 
     // 清理
     kernel.shutdown();
-    
+
     std::cout << std::endl;
     std::cout << "=== Example completed successfully ===" << std::endl;
     return 0;

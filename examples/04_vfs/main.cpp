@@ -6,8 +6,8 @@
 #include <string>
 #include <vector>
 
-#include "corona/kernel/core/kernel_context.h"
 #include "corona/kernel/core/i_vfs.h"
+#include "corona/kernel/core/kernel_context.h"
 
 using namespace Corona::Kernel;
 
@@ -49,7 +49,7 @@ int main() {
     // 获取当前工作目录
     auto current_dir = std::filesystem::current_path();
     auto vfs_data_dir = current_dir / "04_vfs_data";
-    
+
     std::cout << "Current directory: " << current_dir.string() << std::endl;
     std::cout << "VFS data directory: " << vfs_data_dir.string() << std::endl;
     std::cout << std::endl;
@@ -150,7 +150,7 @@ int main() {
 
     for (const auto& file : files_to_check) {
         bool exists = vfs->exists(file);
-        std::cout << "  " << file << ": " 
+        std::cout << "  " << file << ": "
                   << (exists ? "[Exists]" : "[Not found]") << std::endl;
     }
     std::cout << std::endl;
@@ -164,8 +164,7 @@ int main() {
         "/config/game_settings.json",
         "/data/player.json",
         "/assets/textures/player.png",
-        "/saves/save_001.dat"
-    };
+        "/saves/save_001.dat"};
 
     for (const auto& vpath : virtual_paths) {
         std::string resolved = vfs->resolve(vpath);
@@ -293,20 +292,20 @@ int main() {
     std::cout << "[Performance Test] File Operations..." << std::endl;
 
     auto start = std::chrono::high_resolution_clock::now();
-    
+
     // 批量写入
     for (int i = 0; i < 100; ++i) {
         std::string filename = "/data/test_" + std::to_string(i) + ".txt";
         std::string content = "Test file content " + std::to_string(i);
         vfs->write_file(filename, string_to_bytes(content));
     }
-    
+
     // 批量读取
     for (int i = 0; i < 100; ++i) {
         std::string filename = "/data/test_" + std::to_string(i) + ".txt";
         vfs->read_file(filename);
     }
-    
+
     // 注意: VFS当前不支持删除操作,实际应用中需要通过PAL的文件系统删除
 
     auto end = std::chrono::high_resolution_clock::now();
