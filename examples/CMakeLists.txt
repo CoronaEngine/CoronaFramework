@@ -34,3 +34,9 @@ target_link_libraries(04_vfs PRIVATE corona::kernel corona::pal)
 # ========================================
 add_executable(05_multithreading 05_multithreading/main.cpp)
 target_link_libraries(05_multithreading PRIVATE corona::kernel corona::pal)
+
+# ========================================
+# 06 - Game Loop Example
+# ========================================
+add_executable(06_game_loop 06_game_loop/main.cpp)
+target_link_libraries(06_game_loop PRIVATE corona::kernel corona::pal)

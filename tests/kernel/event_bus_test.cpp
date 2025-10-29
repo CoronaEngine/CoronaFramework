@@ -275,7 +275,7 @@ TEST(EventBus, MutableLambda) {
 
     std::vector<int> received_values;
 
-    bus->subscribe<SimpleEvent>([&received_values](const SimpleEvent& event) mutable {
+    bus->subscribe<SimpleEvent>([&received_values](const SimpleEvent& event) {
         received_values.push_back(event.value);
     });
 
