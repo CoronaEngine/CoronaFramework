@@ -46,6 +46,8 @@ class SystemBase : public ISystem {
     }
 
     void start() override {
+        std::lock_guard<std::mutex> lock(control_mutex_);
+
         if (state_ != SystemState::idle && state_ != SystemState::stopped) {
             return;
         }
@@ -80,6 +82,8 @@ class SystemBase : public ISystem {
     }
 
     void stop() override {
+        std::lock_guard<std::mutex> lock(control_mutex_);
+
         if (state_ == SystemState::stopped || state_ == SystemState::idle) {
             return;
         }
@@ -89,7 +93,7 @@ class SystemBase : public ISystem {
 
         // 唤醒可能在等待的线程
         {
-            std::lock_guard<std::mutex> lock(pause_mutex_);
+            std::lock_guard<std::mutex> pause_lock(pause_mutex_);
             is_paused_.store(false, std::memory_order_release);
         }
         pause_cv_.notify_one();
@@ -219,6 +223,7 @@ class SystemBase : public ISystem {
     std::atomic<bool> should_run_;
     std::atomic<bool> is_paused_;
     std::thread thread_;
+    std::mutex control_mutex_;  // 保护 start/stop 操作
     std::mutex pause_mutex_;
     std::condition_variable pause_cv_;
 

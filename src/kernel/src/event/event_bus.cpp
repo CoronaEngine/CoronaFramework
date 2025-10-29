@@ -48,8 +48,18 @@ class EventBus : public IEventBus {
         }
 
         // Call handlers without holding the lock to avoid deadlocks
+        // Catch exceptions to prevent one subscriber from crashing the entire system
         for (const auto& handler : handlers_copy) {
-            handler(event_ptr);
+            try {
+                handler(event_ptr);
+            } catch (const std::exception& e) {
+                // Log the exception but continue processing other handlers
+                // In production, this could log to a proper logging system
+                // For now, we silently catch to maintain system stability
+                (void)e;  // Suppress unused variable warning
+            } catch (...) {
+                // Catch all other exceptions to ensure robustness
+            }
         }
     }
 

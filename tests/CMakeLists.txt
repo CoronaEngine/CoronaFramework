@@ -106,6 +106,76 @@ target_link_libraries(kernel_benchmark_test
 )
 
 # ========================================
+# Multi-threaded Stability Tests
+# ========================================
+
+# EventBus 多线程测试
+add_executable(kernel_eventbus_mt_test
+    kernel/eventbus_mt_test.cpp
+)
+
+target_link_libraries(kernel_eventbus_mt_test
+    PRIVATE
+        corona_kernel
+        corona_pal
+)
+
+# EventStream 多线程测试
+add_executable(kernel_eventstream_mt_test
+    kernel/eventstream_mt_test.cpp
+)
+
+target_link_libraries(kernel_eventstream_mt_test
+    PRIVATE
+        corona_kernel
+        corona_pal
+)
+
+# Logger 多线程测试
+add_executable(kernel_logger_mt_test
+    kernel/logger_mt_test.cpp
+)
+
+target_link_libraries(kernel_logger_mt_test
+    PRIVATE
+        corona_kernel
+        corona_pal
+)
+
+# VFS 多线程测试
+add_executable(kernel_vfs_mt_test
+    kernel/vfs_mt_test.cpp
+)
+
+target_link_libraries(kernel_vfs_mt_test
+    PRIVATE
+        corona_kernel
+        corona_pal
+)
+
+# PluginManager 多线程测试
+add_executable(kernel_pluginmanager_mt_test
+    kernel/pluginmanager_mt_test.cpp
+)
+
+target_link_libraries(kernel_pluginmanager_mt_test
+    PRIVATE
+        corona_kernel
+        corona_pal
+)
+
+# SystemManager 多线程测试
+add_executable(kernel_systemmanager_mt_test
+    kernel/systemmanager_mt_test.cpp
+)
+
+target_link_libraries(kernel_systemmanager_mt_test
+    PRIVATE
+        corona_kernel
+        corona_pal
+)
+
+# ========================================
 # 启用测试
 # ========================================
 
@@ -157,6 +227,42 @@ add_test(
 add_test(
     NAME Benchmark
     COMMAND kernel_benchmark_test
+)
+
+# 注册 EventBus 多线程测试
+add_test(
+    NAME EventBusMT
+    COMMAND kernel_eventbus_mt_test
+)
+
+# 注册 EventStream 多线程测试
+add_test(
+    NAME EventStreamMT
+    COMMAND kernel_eventstream_mt_test
+)
+
+# 注册 Logger 多线程测试
+add_test(
+    NAME LoggerMT
+    COMMAND kernel_logger_mt_test
+)
+
+# 注册 VFS 多线程测试
+add_test(
+    NAME VFSMT
+    COMMAND kernel_vfs_mt_test
+)
+
+# 注册 PluginManager 多线程测试
+add_test(
+    NAME PluginManagerMT
+    COMMAND kernel_pluginmanager_mt_test
+)
+
+# 注册 SystemManager 多线程测试
+add_test(
+    NAME SystemManagerMT
+    COMMAND kernel_systemmanager_mt_test
 )
 
 # ========================================
@@ -234,6 +340,14 @@ message(STATUS "  - kernel_event_bus_test: EventBus publish/subscribe tests")
 message(STATUS "  - kernel_logger_test: Logger functionality tests")
 message(STATUS "  - kernel_vfs_test: Virtual file system tests")
 message(STATUS "  - kernel_benchmark_test: Performance benchmark tests")
+message(STATUS "")
+message(STATUS "Multi-threaded Stability Tests:")
+message(STATUS "  - kernel_eventbus_mt_test: EventBus concurrent operations")
+message(STATUS "  - kernel_eventstream_mt_test: EventStream producer-consumer patterns")
+message(STATUS "  - kernel_logger_mt_test: Logger high-frequency concurrent logging")
+message(STATUS "  - kernel_vfs_mt_test: VFS concurrent mount/unmount/resolve")
+message(STATUS "  - kernel_pluginmanager_mt_test: PluginManager concurrent queries")
+message(STATUS "  - kernel_systemmanager_mt_test: SystemManager state transitions")
 message(STATUS "")
 message(STATUS "Run tests:")
 message(STATUS "  cd build && ctest")
