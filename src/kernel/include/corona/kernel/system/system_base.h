@@ -60,6 +60,8 @@ class SystemBase : public ISystem {
     }
 
     void pause() override {
+        std::lock_guard<std::mutex> lock(control_mutex_);
+        
         if (state_ != SystemState::running) {
             return;
         }
@@ -69,12 +71,14 @@ class SystemBase : public ISystem {
     }
 
     void resume() override {
+        std::lock_guard<std::mutex> lock(control_mutex_);
+        
         if (state_ != SystemState::paused) {
             return;
         }
 
         {
-            std::lock_guard<std::mutex> lock(pause_mutex_);
+            std::lock_guard<std::mutex> pause_lock(pause_mutex_);
             is_paused_.store(false, std::memory_order_release);
             state_.store(SystemState::running, std::memory_order_release);
         }
