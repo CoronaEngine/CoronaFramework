@@ -50,6 +50,8 @@ TEST(StaticBufferTests, MultiThreadConcurrentAccess) {
     std::atomic<bool> start{false};
     std::atomic<std::size_t> produced{0};
     std::atomic<std::size_t> consumed{0};
+    std::atomic<bool> stop{false};
+    std::atomic<std::size_t> observed{0};
 
     const auto producer = [&]() {
         std::vector<std::size_t> local_indices;
@@ -87,12 +89,11 @@ TEST(StaticBufferTests, MultiThreadConcurrentAccess) {
             std::this_thread::yield();
         }
 
-        std::size_t observed = 0;
-        while (observed < 20'000) {
+        while (!stop.load(std::memory_order_acquire)) {
             for (std::size_t idx = 0; idx < capacity; ++idx) {
                 buffer.access(idx, [&](const int& value) {
                     (void)value;
-                    ++observed;
+                    observed.fetch_add(1, std::memory_order_relaxed);
                 });
             }
             std::this_thread::yield();
@@ -107,9 +108,11 @@ TEST(StaticBufferTests, MultiThreadConcurrentAccess) {
 
     producer_thread1.join();
     producer_thread2.join();
+    stop.store(true, std::memory_order_release);
     reader_thread.join();
 
     ASSERT_EQ(produced.load(std::memory_order_acquire), consumed.load(std::memory_order_acquire));
+    ASSERT_GT(observed.load(std::memory_order_acquire), 0U);
 }
 
 TEST(StaticBufferTests, ForEachTraversal) {
