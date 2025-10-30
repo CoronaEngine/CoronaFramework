@@ -94,6 +94,17 @@ target_link_libraries(kernel_vfs_test
         corona_pal
 )
 
+# Storage 测试
+add_executable(kernel_storage_test
+    kernel/storage_test.cpp
+)
+
+target_link_libraries(kernel_storage_test
+    PRIVATE
+        corona_kernel
+        corona_pal
+)
+
 # 性能基准测试
 add_executable(kernel_benchmark_test
     kernel/benchmark_test.cpp
@@ -197,6 +208,11 @@ add_test(
 add_test(
     NAME Performance
     COMMAND kernel_performance_test
+)
+
+add_test(
+    NAME Storage
+    COMMAND kernel_storage_test
 )
 
 # 注册事件流测试
