@@ -32,14 +32,12 @@ class StorageBuffer {
         std::unique_lock lock(mutexes_[index]);
         writer(buffer_[index]);
         valid_[index].store(true, std::memory_order_relaxed);
-        valid_count_.fetch_add(1, std::memory_order_relaxed);
     }
 
     void free(std::size_t index) {
         if (index < N) {
             std::unique_lock lock(mutexes_[index]);
             valid_[index].store(false, std::memory_order_relaxed);
-            valid_count_.fetch_sub(1, std::memory_order_relaxed);
             buffer_[index] = T{};
         } else {
             throw std::out_of_range("Index out of range in StorageBuffer");
@@ -64,8 +62,13 @@ class StorageBuffer {
         for (std::size_t i = 0; i < N; ++i) {
             if (valid_[i].load(std::memory_order_relaxed)) {
                 if (mutexes_[i].try_lock_shared()) {
-                    reader(buffer_[i]);
-                    mutexes_[i].unlock_shared();
+                    try {
+                        reader(buffer_[i]);
+                        mutexes_[i].unlock_shared();
+                    } catch (...) {
+                        mutexes_[i].unlock_shared();
+                        throw;
+                    }
                 } else {
                     skipped.push(i);
                 }
@@ -75,11 +78,9 @@ class StorageBuffer {
         while (!skipped.empty()) {
             const std::size_t i = skipped.front();
             skipped.pop();
-            if (mutexes_[i].try_lock_shared()) {
+            if (valid_[i].load(std::memory_order_relaxed)) {
+                std::shared_lock lock(mutexes_[i]);
                 reader(buffer_[i]);
-                mutexes_[i].unlock_shared();
-            } else {
-                skipped.push(i);
             }
         }
     }
@@ -89,8 +90,13 @@ class StorageBuffer {
         for (std::size_t i = 0; i < N; ++i) {
             if (valid_[i].load(std::memory_order_relaxed)) {
                 if (mutexes_[i].try_lock()) {
-                    writer(buffer_[i]);
-                    mutexes_[i].unlock();
+                    try {
+                        writer(buffer_[i]);
+                        mutexes_[i].unlock();
+                    } catch (...) {
+                        mutexes_[i].unlock();
+                        throw;
+                    }
                 } else {
                     skipped.push(i);
                 }
@@ -100,11 +106,9 @@ class StorageBuffer {
         while (!skipped.empty()) {
             const std::size_t i = skipped.front();
             skipped.pop();
-            if (mutexes_[i].try_lock()) {
+            if (valid_[i].load(std::memory_order_relaxed)) {
+                std::unique_lock lock(mutexes_[i]);
                 writer(buffer_[i]);
-                mutexes_[i].unlock();
-            } else {
-                skipped.push(i);
             }
         }
     }
@@ -113,18 +117,9 @@ class StorageBuffer {
         return N;
     }
 
-    [[nodiscard]] std::size_t used_count() const {
-        return valid_count_.load(std::memory_order_relaxed);
-    }
-
-    [[nodiscard]] std::size_t free_count() const {
-        return N - valid_count_.load(std::memory_order_relaxed);
-    }
-
    private:
     std::array<T, N> buffer_{};
     std::array<std::atomic<bool>, N> valid_{};
-    std::atomic<std::size_t> valid_count_{0};
     mutable std::array<std::shared_mutex, N> mutexes_{};
 };
 
