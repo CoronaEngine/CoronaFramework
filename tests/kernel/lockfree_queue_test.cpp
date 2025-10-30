@@ -438,6 +438,519 @@ TEST(LockFreeRingBufferQueueTests, PerformanceThroughput) {
     ASSERT_GT(ops_per_ms, 1.0);
 }
 
+TEST(LockFreeQueueTests, UnbalancedProducerConsumer) {
+    LockFreeQueue<std::uint64_t> queue;
+
+    constexpr std::size_t producer_count = 8;
+    constexpr std::size_t consumer_count = 2;
+    constexpr std::size_t items_per_producer = 5'000;
+    const std::size_t total_items = producer_count * items_per_producer;
+
+    std::atomic<std::size_t> produced{0};
+    std::atomic<std::size_t> consumed{0};
+    std::atomic<bool> start{false};
+    std::atomic<bool> producers_done{false};
+
+    std::vector<std::uint32_t> seen(total_items, 0);
+    std::mutex seen_mutex;
+
+    std::vector<std::thread> threads;
+    threads.reserve(producer_count + consumer_count);
+
+    for (std::size_t pid = 0; pid < producer_count; ++pid) {
+        threads.emplace_back([&, pid]() {
+            while (!start.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+
+            for (std::size_t seq = 0; seq < items_per_producer; ++seq) {
+                const std::uint64_t value = static_cast<std::uint64_t>(pid * items_per_producer + seq);
+                queue.enqueue(value);
+                produced.fetch_add(1, std::memory_order_release);
+            }
+        });
+    }
+
+    for (std::size_t cid = 0; cid < consumer_count; ++cid) {
+        threads.emplace_back([&]() {
+            while (!start.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+
+            while (consumed.load(std::memory_order_acquire) < total_items) {
+                std::uint64_t value = 0;
+                if (queue.dequeue(value)) {
+                    const std::size_t index = static_cast<std::size_t>(value);
+                    ASSERT_LT(index, total_items);
+
+                    {
+                        std::lock_guard<std::mutex> lock(seen_mutex);
+                        seen[index] += 1;
+                        ASSERT_EQ(seen[index], 1U);
+                    }
+
+                    consumed.fetch_add(1, std::memory_order_release);
+                } else {
+                    std::this_thread::yield();
+                }
+            }
+        });
+    }
+
+    start.store(true, std::memory_order_release);
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    ASSERT_EQ(produced.load(std::memory_order_acquire), total_items);
+    ASSERT_EQ(consumed.load(std::memory_order_acquire), total_items);
+
+    for (std::size_t i = 0; i < total_items; ++i) {
+        ASSERT_EQ(seen[i], 1U);
+    }
+
+    ASSERT_TRUE(queue.empty());
+}
+
+TEST(LockFreeRingBufferQueueTests, UnbalancedProducerConsumer) {
+    constexpr std::size_t producer_count = 8;
+    constexpr std::size_t consumer_count = 2;
+    constexpr std::size_t items_per_producer = 5'000;
+    constexpr std::size_t total_items = producer_count * items_per_producer;
+
+    LockFreeRingBufferQueue<std::uint64_t, 1 << 12> queue;
+
+    std::atomic<std::size_t> produced{0};
+    std::atomic<std::size_t> consumed{0};
+    std::atomic<bool> start{false};
+
+    std::vector<std::uint32_t> seen(total_items, 0);
+    std::mutex seen_mutex;
+
+    std::vector<std::thread> threads;
+    threads.reserve(producer_count + consumer_count);
+
+    for (std::size_t pid = 0; pid < producer_count; ++pid) {
+        threads.emplace_back([&, pid]() {
+            while (!start.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+
+            for (std::size_t seq = 0; seq < items_per_producer; ++seq) {
+                const std::uint64_t value = static_cast<std::uint64_t>(pid * items_per_producer + seq);
+                while (!queue.enqueue(value)) {
+                    std::this_thread::yield();
+                }
+                produced.fetch_add(1, std::memory_order_release);
+            }
+        });
+    }
+
+    for (std::size_t cid = 0; cid < consumer_count; ++cid) {
+        threads.emplace_back([&]() {
+            while (!start.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+
+            while (consumed.load(std::memory_order_acquire) < total_items) {
+                std::uint64_t value = 0;
+                if (queue.dequeue(value)) {
+                    const std::size_t index = static_cast<std::size_t>(value);
+                    ASSERT_LT(index, total_items);
+
+                    {
+                        std::lock_guard<std::mutex> lock(seen_mutex);
+                        seen[index] += 1;
+                        ASSERT_EQ(seen[index], 1U);
+                    }
+
+                    consumed.fetch_add(1, std::memory_order_release);
+                } else {
+                    std::this_thread::yield();
+                }
+            }
+        });
+    }
+
+    start.store(true, std::memory_order_release);
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    ASSERT_EQ(produced.load(std::memory_order_acquire), total_items);
+    ASSERT_EQ(consumed.load(std::memory_order_acquire), total_items);
+
+    for (std::size_t i = 0; i < total_items; ++i) {
+        ASSERT_EQ(seen[i], 1U);
+    }
+
+    ASSERT_TRUE(queue.empty());
+}
+
+TEST(LockFreeQueueTests, BurstLoad) {
+    LockFreeQueue<std::uint64_t> queue;
+
+    constexpr std::size_t burst_count = 3;
+    constexpr std::size_t items_per_burst = 10'000;
+    constexpr std::size_t total_items = burst_count * items_per_burst;
+
+    std::atomic<std::size_t> produced{0};
+    std::atomic<std::size_t> consumed{0};
+    std::atomic<bool> start{false};
+
+    std::vector<std::uint32_t> seen(total_items, 0);
+    std::mutex seen_mutex;
+
+    std::thread producer([&]() {
+        while (!start.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+
+        for (std::size_t burst = 0; burst < burst_count; ++burst) {
+            for (std::size_t i = 0; i < items_per_burst; ++i) {
+                const std::uint64_t value = burst * items_per_burst + i;
+                queue.enqueue(value);
+                produced.fetch_add(1, std::memory_order_release);
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    });
+
+    std::thread consumer([&]() {
+        while (!start.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+
+        while (consumed.load(std::memory_order_acquire) < total_items) {
+            std::uint64_t value = 0;
+            if (queue.dequeue(value)) {
+                const std::size_t index = static_cast<std::size_t>(value);
+                ASSERT_LT(index, total_items);
+
+                {
+                    std::lock_guard<std::mutex> lock(seen_mutex);
+                    seen[index] += 1;
+                    ASSERT_EQ(seen[index], 1U);
+                }
+
+                consumed.fetch_add(1, std::memory_order_release);
+            } else {
+                std::this_thread::yield();
+            }
+        }
+    });
+
+    start.store(true, std::memory_order_release);
+
+    producer.join();
+    consumer.join();
+
+    ASSERT_EQ(produced.load(std::memory_order_acquire), total_items);
+    ASSERT_EQ(consumed.load(std::memory_order_acquire), total_items);
+
+    for (std::size_t i = 0; i < total_items; ++i) {
+        ASSERT_EQ(seen[i], 1U);
+    }
+
+    ASSERT_TRUE(queue.empty());
+}
+
+TEST(LockFreeRingBufferQueueTests, BurstLoad) {
+    constexpr std::size_t burst_count = 3;
+    constexpr std::size_t items_per_burst = 10'000;
+    constexpr std::size_t total_items = burst_count * items_per_burst;
+
+    LockFreeRingBufferQueue<std::uint64_t, 1 << 13> queue;
+
+    std::atomic<std::size_t> produced{0};
+    std::atomic<std::size_t> consumed{0};
+    std::atomic<bool> start{false};
+
+    std::vector<std::uint32_t> seen(total_items, 0);
+    std::mutex seen_mutex;
+
+    std::thread producer([&]() {
+        while (!start.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+
+        for (std::size_t burst = 0; burst < burst_count; ++burst) {
+            for (std::size_t i = 0; i < items_per_burst; ++i) {
+                const std::uint64_t value = burst * items_per_burst + i;
+                while (!queue.enqueue(value)) {
+                    std::this_thread::yield();
+                }
+                produced.fetch_add(1, std::memory_order_release);
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    });
+
+    std::thread consumer([&]() {
+        while (!start.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+
+        while (consumed.load(std::memory_order_acquire) < total_items) {
+            std::uint64_t value = 0;
+            if (queue.dequeue(value)) {
+                const std::size_t index = static_cast<std::size_t>(value);
+                ASSERT_LT(index, total_items);
+
+                {
+                    std::lock_guard<std::mutex> lock(seen_mutex);
+                    seen[index] += 1;
+                    ASSERT_EQ(seen[index], 1U);
+                }
+
+                consumed.fetch_add(1, std::memory_order_release);
+            } else {
+                std::this_thread::yield();
+            }
+        }
+    });
+
+    start.store(true, std::memory_order_release);
+
+    producer.join();
+    consumer.join();
+
+    ASSERT_EQ(produced.load(std::memory_order_acquire), total_items);
+    ASSERT_EQ(consumed.load(std::memory_order_acquire), total_items);
+
+    for (std::size_t i = 0; i < total_items; ++i) {
+        ASSERT_EQ(seen[i], 1U);
+    }
+
+    ASSERT_TRUE(queue.empty());
+}
+
+TEST(LockFreeQueueTests, MemoryOrderingStressTest) {
+    LockFreeQueue<std::pair<std::uint64_t, std::uint64_t>> queue;
+
+    constexpr std::size_t producer_count = 4;
+    constexpr std::size_t consumer_count = 4;
+    constexpr std::size_t items_per_producer = 10'000;
+    const std::size_t total_items = producer_count * items_per_producer;
+
+    std::atomic<std::size_t> produced{0};
+    std::atomic<std::size_t> consumed{0};
+    std::atomic<bool> start{false};
+    std::atomic<bool> ordering_violation{false};
+
+    std::vector<std::thread> threads;
+    threads.reserve(producer_count + consumer_count);
+
+    for (std::size_t pid = 0; pid < producer_count; ++pid) {
+        threads.emplace_back([&, pid]() {
+            while (!start.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+
+            for (std::size_t seq = 0; seq < items_per_producer; ++seq) {
+                const std::uint64_t value = pid * items_per_producer + seq;
+                queue.enqueue(std::make_pair(value, value));
+                produced.fetch_add(1, std::memory_order_release);
+            }
+        });
+    }
+
+    for (std::size_t cid = 0; cid < consumer_count; ++cid) {
+        threads.emplace_back([&]() {
+            while (!start.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+
+            while (consumed.load(std::memory_order_acquire) < total_items) {
+                std::pair<std::uint64_t, std::uint64_t> value;
+                if (queue.dequeue(value)) {
+                    if (value.first != value.second) {
+                        ordering_violation.store(true, std::memory_order_release);
+                    }
+                    consumed.fetch_add(1, std::memory_order_release);
+                } else {
+                    std::this_thread::yield();
+                }
+            }
+        });
+    }
+
+    start.store(true, std::memory_order_release);
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    ASSERT_FALSE(ordering_violation.load(std::memory_order_acquire));
+    ASSERT_EQ(produced.load(std::memory_order_acquire), total_items);
+    ASSERT_EQ(consumed.load(std::memory_order_acquire), total_items);
+    ASSERT_TRUE(queue.empty());
+}
+
+TEST(LockFreeRingBufferQueueTests, MemoryOrderingStressTest) {
+    constexpr std::size_t producer_count = 4;
+    constexpr std::size_t consumer_count = 4;
+    constexpr std::size_t items_per_producer = 10'000;
+    constexpr std::size_t total_items = producer_count * items_per_producer;
+
+    LockFreeRingBufferQueue<std::pair<std::uint64_t, std::uint64_t>, 1 << 12> queue;
+
+    std::atomic<std::size_t> produced{0};
+    std::atomic<std::size_t> consumed{0};
+    std::atomic<bool> start{false};
+    std::atomic<bool> ordering_violation{false};
+
+    std::vector<std::thread> threads;
+    threads.reserve(producer_count + consumer_count);
+
+    for (std::size_t pid = 0; pid < producer_count; ++pid) {
+        threads.emplace_back([&, pid]() {
+            while (!start.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+
+            for (std::size_t seq = 0; seq < items_per_producer; ++seq) {
+                const std::uint64_t value = pid * items_per_producer + seq;
+                while (!queue.enqueue(std::make_pair(value, value))) {
+                    std::this_thread::yield();
+                }
+                produced.fetch_add(1, std::memory_order_release);
+            }
+        });
+    }
+
+    for (std::size_t cid = 0; cid < consumer_count; ++cid) {
+        threads.emplace_back([&]() {
+            while (!start.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+
+            while (consumed.load(std::memory_order_acquire) < total_items) {
+                std::pair<std::uint64_t, std::uint64_t> value;
+                if (queue.dequeue(value)) {
+                    if (value.first != value.second) {
+                        ordering_violation.store(true, std::memory_order_release);
+                    }
+                    consumed.fetch_add(1, std::memory_order_release);
+                } else {
+                    std::this_thread::yield();
+                }
+            }
+        });
+    }
+
+    start.store(true, std::memory_order_release);
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    ASSERT_FALSE(ordering_violation.load(std::memory_order_acquire));
+    ASSERT_EQ(produced.load(std::memory_order_acquire), total_items);
+    ASSERT_EQ(consumed.load(std::memory_order_acquire), total_items);
+    ASSERT_TRUE(queue.empty());
+}
+
+TEST(LockFreeQueueTests, HighContentionStressTest) {
+    LockFreeQueue<std::uint64_t> queue;
+
+    constexpr std::size_t thread_count = 16;
+    constexpr std::size_t operations_per_thread = 5'000;
+
+    std::atomic<std::size_t> enqueued{0};
+    std::atomic<std::size_t> dequeued{0};
+    std::atomic<bool> start{false};
+
+    std::vector<std::thread> threads;
+    threads.reserve(thread_count);
+
+    for (std::size_t tid = 0; tid < thread_count; ++tid) {
+        threads.emplace_back([&, tid]() {
+            while (!start.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+
+            for (std::size_t op = 0; op < operations_per_thread; ++op) {
+                const std::uint64_t value = tid * operations_per_thread + op;
+                queue.enqueue(value);
+                enqueued.fetch_add(1, std::memory_order_relaxed);
+
+                std::uint64_t deq_value = 0;
+                if (queue.dequeue(deq_value)) {
+                    dequeued.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+        });
+    }
+
+    start.store(true, std::memory_order_release);
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    std::uint64_t remaining_value = 0;
+    while (queue.dequeue(remaining_value)) {
+        dequeued.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    ASSERT_EQ(enqueued.load(std::memory_order_acquire), thread_count * operations_per_thread);
+    ASSERT_EQ(dequeued.load(std::memory_order_acquire), thread_count * operations_per_thread);
+    ASSERT_TRUE(queue.empty());
+}
+
+TEST(LockFreeRingBufferQueueTests, HighContentionStressTest) {
+    constexpr std::size_t thread_count = 16;
+    constexpr std::size_t operations_per_thread = 5'000;
+
+    LockFreeRingBufferQueue<std::uint64_t, 1 << 13> queue;
+
+    std::atomic<std::size_t> enqueued{0};
+    std::atomic<std::size_t> dequeued{0};
+    std::atomic<bool> start{false};
+
+    std::vector<std::thread> threads;
+    threads.reserve(thread_count);
+
+    for (std::size_t tid = 0; tid < thread_count; ++tid) {
+        threads.emplace_back([&, tid]() {
+            while (!start.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+
+            for (std::size_t op = 0; op < operations_per_thread; ++op) {
+                const std::uint64_t value = tid * operations_per_thread + op;
+                while (!queue.enqueue(value)) {
+                    std::this_thread::yield();
+                }
+                enqueued.fetch_add(1, std::memory_order_relaxed);
+
+                std::uint64_t deq_value = 0;
+                if (queue.dequeue(deq_value)) {
+                    dequeued.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+        });
+    }
+
+    start.store(true, std::memory_order_release);
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    std::uint64_t remaining_value = 0;
+    while (queue.dequeue(remaining_value)) {
+        dequeued.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    ASSERT_EQ(enqueued.load(std::memory_order_acquire), thread_count * operations_per_thread);
+    ASSERT_EQ(dequeued.load(std::memory_order_acquire), thread_count * operations_per_thread);
+    ASSERT_TRUE(queue.empty());
+}
+
 int main() {
     return CoronaTest::TestRunner::instance().run_all();
 }
