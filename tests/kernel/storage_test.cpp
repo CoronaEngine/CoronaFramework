@@ -1206,6 +1206,246 @@ TEST(StorageBuffer, StressTestRapidFreesAndWrites) {
     ASSERT_FALSE(failure.load());
 }
 
+TEST(StorageBuffer, AddMethodBasicAllocation) {
+    StorageBuffer<int, 5> buffer;
+
+    auto idx1 = buffer.add([](int& value) {
+        value = 10;
+    });
+    ASSERT_TRUE(idx1.has_value());
+
+    auto idx2 = buffer.add([](int& value) {
+        value = 20;
+    });
+    ASSERT_TRUE(idx2.has_value());
+
+    ASSERT_NE(idx1.value(), idx2.value());
+
+    int val1 = 0;
+    buffer.read(idx1.value(), [&](const int& value) {
+        val1 = value;
+    });
+    ASSERT_EQ(val1, 10);
+
+    int val2 = 0;
+    buffer.read(idx2.value(), [&](const int& value) {
+        val2 = value;
+    });
+    ASSERT_EQ(val2, 20);
+}
+
+TEST(StorageBuffer, AddMethodReturnsNulloptWhenFull) {
+    StorageBuffer<int, 3> buffer;
+
+    auto idx1 = buffer.add([](int& value) { value = 1; });
+    auto idx2 = buffer.add([](int& value) { value = 2; });
+    auto idx3 = buffer.add([](int& value) { value = 3; });
+
+    ASSERT_TRUE(idx1.has_value());
+    ASSERT_TRUE(idx2.has_value());
+    ASSERT_TRUE(idx3.has_value());
+
+    auto idx4 = buffer.add([](int& value) { value = 4; });
+    ASSERT_FALSE(idx4.has_value());
+}
+
+TEST(StorageBuffer, AddMethodReusesFreeIndices) {
+    StorageBuffer<int, 3> buffer;
+
+    // 分配所有槽位
+    auto idx1 = buffer.add([](int& value) { value = 100; });
+    auto idx2 = buffer.add([](int& value) { value = 200; });
+    auto idx3 = buffer.add([](int& value) { value = 300; });
+
+    ASSERT_TRUE(idx1.has_value());
+    ASSERT_TRUE(idx2.has_value());
+    ASSERT_TRUE(idx3.has_value());
+
+    // 释放第一个
+    buffer.free(idx1.value());
+
+    // 再次分配应该重用被释放的索引
+    auto idx4 = buffer.add([](int& value) { value = 400; });
+    ASSERT_TRUE(idx4.has_value());
+    ASSERT_EQ(idx4.value(), idx1.value());
+
+    int val = 0;
+    buffer.read(idx4.value(), [&](const int& value) {
+        val = value;
+    });
+    ASSERT_EQ(val, 400);
+}
+
+TEST(StorageBuffer, AddMethodExceptionSafety) {
+    StorageBuffer<int, 5> buffer;
+
+    auto idx1 = buffer.add([](int& value) { value = 10; });
+    ASSERT_TRUE(idx1.has_value());
+
+    bool exception_caught = false;
+    try {
+        buffer.add([](int& value) {
+            value = 20;
+            throw std::runtime_error("intentional");
+        });
+    } catch (const std::runtime_error&) {
+        exception_caught = true;
+    }
+    ASSERT_TRUE(exception_caught);
+
+    auto idx2 = buffer.add([](int& value) { value = 30; });
+    ASSERT_TRUE(idx2.has_value());
+
+    int val = 0;
+    buffer.read(idx2.value(), [&](const int& value) {
+        val = value;
+    });
+    ASSERT_EQ(val, 30);
+}
+
+TEST(StorageBuffer, AddMethodAllocatesLowIndicesFirst) {
+    StorageBuffer<int, 10> buffer;
+
+    auto idx1 = buffer.add([](int& value) { value = 1; });
+    auto idx2 = buffer.add([](int& value) { value = 2; });
+    auto idx3 = buffer.add([](int& value) { value = 3; });
+
+    ASSERT_TRUE(idx1.has_value());
+    ASSERT_TRUE(idx2.has_value());
+    ASSERT_TRUE(idx3.has_value());
+
+    ASSERT_EQ(idx1.value(), 0u);
+    ASSERT_EQ(idx2.value(), 1u);
+    ASSERT_EQ(idx3.value(), 2u);
+}
+
+TEST(StorageBuffer, AddMethodConcurrentAllocations) {
+    constexpr std::size_t kSize = 64;
+    constexpr std::size_t kThreadCount = 8;
+    constexpr std::size_t kAllocsPerThread = 8;
+
+    StorageBuffer<int, kSize> buffer;
+
+    std::atomic<bool> failure{false};
+    std::array<std::atomic<bool>, kSize> allocated{};
+    for (auto& flag : allocated) {
+        flag.store(false);
+    }
+
+    std::vector<std::thread> threads;
+    threads.reserve(kThreadCount);
+
+    for (std::size_t t = 0; t < kThreadCount; ++t) {
+        threads.emplace_back([&, t]() {
+            for (std::size_t i = 0; i < kAllocsPerThread; ++i) {
+                auto idx = buffer.add([t, i](int& value) {
+                    value = static_cast<int>((t << 16) | i);
+                });
+
+                if (!idx.has_value()) {
+                    failure.store(true);
+                    return;
+                }
+
+                bool expected = false;
+                if (!allocated[idx.value()].compare_exchange_strong(expected, true)) {
+                    failure.store(true);
+                    return;
+                }
+            }
+        });
+    }
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    ASSERT_FALSE(failure.load());
+
+    std::size_t allocated_count = 0;
+    for (const auto& flag : allocated) {
+        if (flag.load()) {
+            ++allocated_count;
+        }
+    }
+    ASSERT_EQ(allocated_count, kThreadCount * kAllocsPerThread);
+}
+
+TEST(StorageBuffer, AddAndFreeConcurrent) {
+    constexpr std::size_t kSize = 32;
+    constexpr std::size_t kIterations = 1000;
+
+    StorageBuffer<int, kSize> buffer;
+
+    std::atomic<bool> failure{false};
+    std::atomic<size_t> successful_adds{0};
+    std::atomic<size_t> successful_frees{0};
+
+    std::thread adder([&]() {
+        for (std::size_t i = 0; i < kIterations; ++i) {
+            auto idx = buffer.add([i](int& value) {
+                value = static_cast<int>(i);
+            });
+            if (idx.has_value()) {
+                successful_adds.fetch_add(1, std::memory_order_relaxed);
+                if (i % 2 == 0) {
+                    buffer.free(idx.value());
+                    successful_frees.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+            std::this_thread::yield();
+        }
+    });
+
+    std::thread freer([&]() {
+        for (std::size_t i = 0; i < kIterations / 2; ++i) {
+            auto idx = buffer.add([i](int& value) {
+                value = static_cast<int>(i + 10000);
+            });
+            if (idx.has_value()) {
+                successful_adds.fetch_add(1, std::memory_order_relaxed);
+                buffer.free(idx.value());
+                successful_frees.fetch_add(1, std::memory_order_relaxed);
+            }
+            std::this_thread::yield();
+        }
+    });
+
+    adder.join();
+    freer.join();
+
+    ASSERT_FALSE(failure.load());
+    ASSERT_GT(successful_adds.load(), 0u);
+    ASSERT_GT(successful_frees.load(), 0u);
+}
+
+TEST(StorageBuffer, AddMethodWithComplexType) {
+    struct ComplexType {
+        std::vector<int> data;
+        std::string name;
+    };
+
+    StorageBuffer<ComplexType, 5> buffer;
+
+    auto idx = buffer.add([](ComplexType& obj) {
+        obj.data = {1, 2, 3, 4, 5};
+        obj.name = "test";
+    });
+
+    ASSERT_TRUE(idx.has_value());
+
+    std::vector<int> read_data;
+    std::string read_name;
+    buffer.read(idx.value(), [&](const ComplexType& obj) {
+        read_data = obj.data;
+        read_name = obj.name;
+    });
+
+    ASSERT_EQ(read_data.size(), 5u);
+    ASSERT_EQ(read_data[0], 1);
+    ASSERT_EQ(read_name, "test");
+}
+
 int main() {
     return CoronaTest::TestRunner::instance().run_all();
 }

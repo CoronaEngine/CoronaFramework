@@ -3,6 +3,7 @@
 #include <atomic>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <queue>
 #include <shared_mutex>
 #include <stdexcept>
@@ -13,6 +14,9 @@ template <typename T, std::size_t N>
 class StorageBuffer {
    public:
     StorageBuffer() {
+        for (std::size_t i = 0; i < N; ++i) {
+            free_indices_.push(i);
+        }
         for (auto& v : valid_) {
             v.store(false);
         }
@@ -24,6 +28,29 @@ class StorageBuffer {
     StorageBuffer& operator=(StorageBuffer&&) = delete;
 
    public:
+    std::optional<std::size_t> add(const std::function<void(T&)>& writer) {
+        std::unique_lock free_lock(free_indices_mutex_);
+        if (free_indices_.empty()) {
+            return std::nullopt;
+        }
+
+        const std::size_t index = free_indices_.front();
+        free_indices_.pop();
+        free_lock.unlock();
+
+        std::unique_lock slot_lock(mutexes_[index]);
+        try {
+            writer(buffer_[index]);
+            valid_[index].store(true, std::memory_order_relaxed);
+            return index;
+        } catch (...) {
+            // 异常时归还索引到空闲队列
+            std::lock_guard guard(free_indices_mutex_);
+            free_indices_.push(index);
+            throw;
+        }
+    }
+
     void write(std::size_t index, const std::function<void(T&)>& writer) {
         if (index >= N) {
             throw std::out_of_range("Index out of range in StorageBuffer");
@@ -39,6 +66,10 @@ class StorageBuffer {
             std::unique_lock lock(mutexes_[index]);
             valid_[index].store(false, std::memory_order_relaxed);
             buffer_[index] = T{};
+            lock.unlock();
+
+            std::lock_guard guard(free_indices_mutex_);
+            free_indices_.push(index);
         } else {
             throw std::out_of_range("Index out of range in StorageBuffer");
         }
@@ -120,6 +151,8 @@ class StorageBuffer {
    private:
     std::array<T, N> buffer_{};
     std::array<std::atomic<bool>, N> valid_{};
+    std::queue<std::size_t> free_indices_{};
+    std::mutex free_indices_mutex_{};
     mutable std::array<std::shared_mutex, N> mutexes_{};
 };
 
