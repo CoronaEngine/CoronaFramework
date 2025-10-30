@@ -116,6 +116,16 @@ target_link_libraries(kernel_benchmark_test
         corona_pal
 )
 
+add_executable(kernel_static_buffer_test
+    kernel/static_buffer_test.cpp
+)
+
+target_link_libraries(kernel_static_buffer_test
+    PRIVATE
+        corona_kernel
+        corona_pal
+)
+
 # ========================================
 # Multi-threaded Stability Tests
 # ========================================
@@ -243,6 +253,11 @@ add_test(
 add_test(
     NAME Benchmark
     COMMAND kernel_benchmark_test
+)
+
+add_test(
+    NAME StaticBuffer
+    COMMAND kernel_static_buffer_test
 )
 
 # 注册 EventBus 多线程测试
