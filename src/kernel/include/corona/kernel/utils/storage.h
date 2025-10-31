@@ -110,7 +110,6 @@ class StaticBuffer {
 
     template <typename Func>
     void for_each_const(Func&& reader) {
-        auto&& reader_ref = reader;
         std::vector<std::size_t> skipped;
         skipped.reserve(Capacity);
 
@@ -122,7 +121,7 @@ class StaticBuffer {
             std::shared_lock<std::shared_mutex> lock(mutexes_[i], std::defer_lock);
             if (lock.try_lock()) {
                 if (occupied_[i].load(std::memory_order_acquire)) {
-                    std::invoke(reader_ref, buffer_[i]);
+                    std::invoke(std::forward<Func>(reader), buffer_[i]);
                 }
             } else {
                 skipped.push_back(i);
@@ -135,14 +134,13 @@ class StaticBuffer {
             }
             std::shared_lock<std::shared_mutex> lock(mutexes_[index]);
             if (occupied_[index].load(std::memory_order_acquire)) {
-                std::invoke(reader_ref, buffer_[index]);
+                std::invoke(std::forward<Func>(reader), buffer_[index]);
             }
         }
     }
 
     template <typename Func>
     void for_each(Func&& writer) {
-        auto&& writer_ref = writer;
         std::vector<std::size_t> skipped;
         skipped.reserve(Capacity);
 
@@ -154,7 +152,7 @@ class StaticBuffer {
             std::unique_lock<std::shared_mutex> lock(mutexes_[i], std::defer_lock);
             if (lock.try_lock()) {
                 if (occupied_[i].load(std::memory_order_acquire)) {
-                    std::invoke(writer_ref, buffer_[i]);
+                    std::invoke(std::forward<Func>(writer), buffer_[i]);
                 }
             } else {
                 skipped.push_back(i);
@@ -167,16 +165,16 @@ class StaticBuffer {
             }
             std::unique_lock<std::shared_mutex> lock(mutexes_[index]);
             if (occupied_[index].load(std::memory_order_acquire)) {
-                std::invoke(writer_ref, buffer_[index]);
+                std::invoke(std::forward<Func>(writer), buffer_[index]);
             }
         }
     }
 
    private:
-    std::array<T, Capacity> buffer_;
+    std::array<T, Capacity> buffer_{};
     std::array<std::atomic<bool>, Capacity> occupied_{};
-    std::array<std::shared_mutex, Capacity> mutexes_;
-    LockFreeRingBufferQueue<std::size_t, Capacity> free_indices_;
+    std::array<std::shared_mutex, Capacity> mutexes_{};
+    LockFreeRingBufferQueue<std::size_t, Capacity> free_indices_{};
 };
 
 }  // namespace Corona::Kernel::Utils
