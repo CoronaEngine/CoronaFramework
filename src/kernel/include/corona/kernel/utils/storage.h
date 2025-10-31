@@ -17,13 +17,13 @@ namespace Corona::Kernel::Utils {
 
 /**
  * @brief 线程安全的固定容量静态缓冲区
- * 
+ *
  * StaticBuffer 提供了一个固定容量的对象池，支持并发的分配、访问、释放和遍历操作。
  * 内部使用无锁环形队列管理空闲索引，每个槽位独立加锁以实现细粒度并发控制。
- * 
+ *
  * @tparam T 存储的元素类型
  * @tparam Capacity 缓冲区容量，必须是 2 的幂次且 >= 2
- * 
+ *
  * @note 线程安全性：
  * - allocate/deallocate：多线程安全
  * - access/access_mut：多线程安全，读写使用共享锁/独占锁
@@ -54,11 +54,11 @@ class StaticBuffer {
 
     /**
      * @brief 分配一个槽位并初始化
-     * 
+     *
      * @tparam Func 可调用对象类型，签名为 void(T&)
      * @param writer 初始化回调，在持有锁的情况下调用
      * @return 成功返回槽位索引，失败返回 std::nullopt
-     * 
+     *
      * @note 如果 writer 抛出异常，分配会回滚，槽位重新标记为空闲
      * @note 线程安全，无锁获取索引 + 独占锁写入数据
      */
@@ -86,10 +86,10 @@ class StaticBuffer {
 
     /**
      * @brief 释放指定槽位
-     * 
+     *
      * @param index 要释放的槽位索引
      * @throws std::out_of_range 如果索引超出范围
-     * 
+     *
      * @note 线程安全，独占锁标记空闲 + 无锁回收索引
      */
     void deallocate(std::size_t index) {
@@ -107,12 +107,12 @@ class StaticBuffer {
 
     /**
      * @brief 只读访问指定槽位
-     * 
+     *
      * @tparam Func 可调用对象类型，签名为 void(const T&)
      * @param index 槽位索引
      * @param reader 读取回调，在持有共享锁的情况下调用
      * @return 成功访问返回 true，槽位未占用或索引无效返回 false
-     * 
+     *
      * @note 线程安全，使用共享锁允许多个读者并发访问
      * @note 双重检查 occupied_ 标志避免访问已释放的槽位
      */
@@ -137,12 +137,12 @@ class StaticBuffer {
 
     /**
      * @brief 可写访问指定槽位
-     * 
+     *
      * @tparam Func 可调用对象类型，签名为 void(T&)
      * @param index 槽位索引
      * @param writer 写入回调，在持有独占锁的情况下调用
      * @return 成功访问返回 true，槽位未占用或索引无效返回 false
-     * 
+     *
      * @note 线程安全，使用独占锁确保独占写入
      * @note 双重检查 occupied_ 标志避免访问已释放的槽位
      */
@@ -167,10 +167,10 @@ class StaticBuffer {
 
     /**
      * @brief 只读遍历所有已占用槽位
-     * 
+     *
      * @tparam Func 可调用对象类型，签名为 void(const T&)
      * @param reader 读取回调，对每个已占用槽位调用一次
-     * 
+     *
      * @note 线程安全，使用 try_lock 避免阻塞：
      *       1. 第一轮尝试快速锁定所有槽位，锁定失败的槽位记录到 skipped
      *       2. 第二轮对 skipped 中的槽位阻塞等待锁
@@ -209,10 +209,10 @@ class StaticBuffer {
 
     /**
      * @brief 可写遍历所有已占用槽位
-     * 
+     *
      * @tparam Func 可调用对象类型，签名为 void(T&)
      * @param writer 写入回调，对每个已占用槽位调用一次
-     * 
+     *
      * @note 线程安全，使用 try_lock 避免阻塞：
      *       1. 第一轮尝试快速锁定所有槽位，锁定失败的槽位记录到 skipped
      *       2. 第二轮对 skipped 中的槽位阻塞等待锁
@@ -250,10 +250,10 @@ class StaticBuffer {
     }
 
    private:
-    std::array<T, Capacity> buffer_{};                              ///< 数据存储数组
-    std::array<std::atomic<bool>, Capacity> occupied_{};            ///< 槽位占用标志，原子操作确保可见性
-    std::array<std::shared_mutex, Capacity> mutexes_{};             ///< 每个槽位的独立共享锁
-    LockFreeRingBufferQueue<std::size_t, Capacity> free_indices_{}; ///< 空闲索引的无锁队列
+    std::array<T, Capacity> buffer_{};                               ///< 数据存储数组
+    std::array<std::atomic<bool>, Capacity> occupied_{};             ///< 槽位占用标志，原子操作确保可见性
+    std::array<std::shared_mutex, Capacity> mutexes_{};              ///< 每个槽位的独立共享锁
+    LockFreeRingBufferQueue<std::size_t, Capacity> free_indices_{};  ///< 空闲索引的无锁队列
 };
 
 }  // namespace Corona::Kernel::Utils
