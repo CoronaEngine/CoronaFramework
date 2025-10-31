@@ -148,7 +148,7 @@ class StaticBuffer {
      * @note 如果 reader 抛出异常，异常会透传给调用者，但锁会被正确释放
      */
     template <typename Func>
-    bool access(std::size_t index, Func&& reader) {
+    bool access(std::size_t index, Func&& reader) const {
         if (index >= Capacity) {
             return false;
         }
@@ -212,7 +212,7 @@ class StaticBuffer {
      * @note 如果 reader 抛出异常，该槽位的异常会被静默吞掉，继续遍历其他槽位
      */
     template <typename Func>
-    void for_each_const(Func&& reader) {
+    void for_each_const(Func&& reader) const {
         std::vector<std::size_t> skipped;
         skipped.reserve(Capacity);
 
@@ -337,7 +337,7 @@ class StaticBuffer {
    private:
     std::array<T, Capacity> buffer_{};                               ///< 数据存储数组
     std::array<std::atomic<bool>, Capacity> occupied_{};             ///< 槽位占用标志，原子操作确保可见性
-    std::array<std::shared_mutex, Capacity> mutexes_{};              ///< 每个槽位的独立共享锁
+    mutable std::array<std::shared_mutex, Capacity> mutexes_{};      ///< 每个槽位的独立共享锁
     LockFreeRingBufferQueue<std::size_t, Capacity> free_indices_{};  ///< 空闲索引的无锁队列
 };
 

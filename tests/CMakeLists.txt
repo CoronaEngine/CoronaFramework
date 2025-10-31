@@ -196,6 +196,17 @@ target_link_libraries(kernel_systemmanager_mt_test
         corona_pal
 )
 
+# Storage 测试
+add_executable(kernel_storage_test
+    kernel/storage_test.cpp
+)
+
+target_link_libraries(kernel_storage_test
+    PRIVATE
+        corona_kernel
+        corona_pal
+)
+
 # ========================================
 # 启用测试
 # ========================================
@@ -294,6 +305,12 @@ add_test(
 add_test(
     NAME SystemManagerMT
     COMMAND kernel_systemmanager_mt_test
+)
+
+# 注册 Storage 测试
+add_test(
+    NAME Storage
+    COMMAND kernel_storage_test
 )
 
 # ========================================
