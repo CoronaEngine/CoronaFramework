@@ -126,6 +126,17 @@ target_link_libraries(kernel_static_buffer_test
         corona_pal
 )
 
+# CacheAlignedAllocator 测试
+add_executable(kernel_cache_aligned_allocator_test
+    kernel/cache_aligned_allocator_test.cpp
+)
+
+target_link_libraries(kernel_cache_aligned_allocator_test
+    PRIVATE
+        corona_kernel
+        corona_pal
+)
+
 # ========================================
 # Multi-threaded Stability Tests
 # ========================================
@@ -269,6 +280,12 @@ add_test(
 add_test(
     NAME StaticBuffer
     COMMAND kernel_static_buffer_test
+)
+
+# 注册 CacheAlignedAllocator 测试
+add_test(
+    NAME CacheAlignedAllocator
+    COMMAND kernel_cache_aligned_allocator_test
 )
 
 # 注册 EventBus 多线程测试

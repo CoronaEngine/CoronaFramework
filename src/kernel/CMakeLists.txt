@@ -6,6 +6,7 @@ add_library(corona_kernel STATIC
     src/core/plugin_manager.cpp
     src/core/kernel_context.cpp
     src/system/system_manager.cpp
+    src/memory/cache_aligned_allocator.cpp
 )
 
 add_library(corona::kernel ALIAS corona_kernel)

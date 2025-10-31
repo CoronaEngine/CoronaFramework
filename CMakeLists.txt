@@ -7,7 +7,6 @@ include(dependencies)
 
 add_subdirectory(src/pal)
 add_subdirectory(src/kernel)
-add_subdirectory(src/memory)
 
 # 添加示例（可选）
 option(BUILD_EXAMPLES "Build examples" ${PROJECT_IS_TOP_LEVEL})
