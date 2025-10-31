@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstddef>
 #include <functional>
+#include <list>
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
@@ -115,6 +116,7 @@ class StaticBuffer {
      *
      * @note 线程安全，使用共享锁允许多个读者并发访问
      * @note 双重检查 occupied_ 标志避免访问已释放的槽位
+     * @note 如果 reader 抛出异常，异常会透传给调用者，但锁会被正确释放
      */
     template <typename Func>
     bool access(std::size_t index, Func&& reader) {
@@ -131,6 +133,7 @@ class StaticBuffer {
             return false;
         }
 
+        // 异常透传给调用者，锁由 RAII 自动释放
         std::invoke(std::forward<Func>(reader), buffer_[index]);
         return true;
     }
@@ -145,6 +148,7 @@ class StaticBuffer {
      *
      * @note 线程安全，使用独占锁确保独占写入
      * @note 双重检查 occupied_ 标志避免访问已释放的槽位
+     * @note 如果 writer 抛出异常，异常会透传给调用者，但锁会被正确释放；数据可能处于部分修改状态
      */
     template <typename Func>
     bool access_mut(std::size_t index, Func&& writer) {
@@ -161,6 +165,7 @@ class StaticBuffer {
             return false;
         }
 
+        // 异常透传给调用者，锁由 RAII 自动释放
         std::invoke(std::forward<Func>(writer), buffer_[index]);
         return true;
     }
@@ -175,6 +180,7 @@ class StaticBuffer {
      *       1. 第一轮尝试快速锁定所有槽位，锁定失败的槽位记录到 skipped
      *       2. 第二轮对 skipped 中的槽位阻塞等待锁
      * @note 遍历期间新分配的槽位可能被观察到，已释放的槽位会被跳过
+     * @note 如果 reader 抛出异常，该槽位的异常会被静默吞掉，继续遍历其他槽位
      */
     template <typename Func>
     void for_each_const(Func&& reader) {
@@ -189,7 +195,11 @@ class StaticBuffer {
             std::shared_lock<std::shared_mutex> lock(mutexes_[i], std::defer_lock);
             if (lock.try_lock()) {
                 if (occupied_[i].load(std::memory_order_acquire)) {
-                    std::invoke(std::forward<Func>(reader), buffer_[i]);
+                    try {
+                        std::invoke(std::forward<Func>(reader), buffer_[i]);
+                    } catch (...) {
+                        // 静默吞掉异常，继续处理下一个槽位
+                    }
                 }
             } else {
                 skipped.push_back(i);
@@ -202,7 +212,11 @@ class StaticBuffer {
             }
             std::shared_lock<std::shared_mutex> lock(mutexes_[index]);
             if (occupied_[index].load(std::memory_order_acquire)) {
-                std::invoke(std::forward<Func>(reader), buffer_[index]);
+                try {
+                    std::invoke(std::forward<Func>(reader), buffer_[index]);
+                } catch (...) {
+                    // 静默吞掉异常，继续处理下一个槽位
+                }
             }
         }
     }
@@ -217,6 +231,7 @@ class StaticBuffer {
      *       1. 第一轮尝试快速锁定所有槽位，锁定失败的槽位记录到 skipped
      *       2. 第二轮对 skipped 中的槽位阻塞等待锁
      * @note 遍历期间新分配的槽位可能被观察到，已释放的槽位会被跳过
+     * @note 如果 writer 抛出异常，该槽位的异常会被静默吞掉，继续遍历其他槽位；数据可能处于部分修改状态
      */
     template <typename Func>
     void for_each(Func&& writer) {
@@ -231,7 +246,11 @@ class StaticBuffer {
             std::unique_lock<std::shared_mutex> lock(mutexes_[i], std::defer_lock);
             if (lock.try_lock()) {
                 if (occupied_[i].load(std::memory_order_acquire)) {
-                    std::invoke(std::forward<Func>(writer), buffer_[i]);
+                    try {
+                        std::invoke(std::forward<Func>(writer), buffer_[i]);
+                    } catch (...) {
+                        // 静默吞掉异常，继续处理下一个槽位
+                    }
                 }
             } else {
                 skipped.push_back(i);
@@ -244,9 +263,46 @@ class StaticBuffer {
             }
             std::unique_lock<std::shared_mutex> lock(mutexes_[index]);
             if (occupied_[index].load(std::memory_order_acquire)) {
-                std::invoke(std::forward<Func>(writer), buffer_[index]);
+                try {
+                    std::invoke(std::forward<Func>(writer), buffer_[index]);
+                } catch (...) {
+                    // 静默吞掉异常，继续处理下一个槽位
+                }
             }
         }
+    }
+
+    /**
+     * @brief 获取缓冲区总容量
+     *
+     * @return 缓冲区容量（编译期常量）
+     *
+     * @note 线程安全，无副作用
+     */
+    [[nodiscard]] consteval std::size_t capacity() const noexcept {
+        return Capacity;
+    }
+
+    /**
+     * @brief 检查缓冲区是否为空（所有槽位均空闲）
+     *
+     * @return 如果所有槽位都未被占用则返回 true
+     *
+     * @note 线程安全，但结果为瞬时快照，可能在返回后立即失效
+     */
+    [[nodiscard]] bool empty() const noexcept {
+        return free_indices_.size() == Capacity;
+    }
+
+    /**
+     * @brief 检查缓冲区是否已满（所有槽位均已占用）
+     *
+     * @return 如果没有空闲槽位则返回 true
+     *
+     * @note 线程安全，但结果为瞬时快照，可能在返回后立即失效
+     */
+    [[nodiscard]] bool full() const noexcept {
+        return free_indices_.empty();
     }
 
    private:
@@ -254,6 +310,58 @@ class StaticBuffer {
     std::array<std::atomic<bool>, Capacity> occupied_{};             ///< 槽位占用标志，原子操作确保可见性
     std::array<std::shared_mutex, Capacity> mutexes_{};              ///< 每个槽位的独立共享锁
     LockFreeRingBufferQueue<std::size_t, Capacity> free_indices_{};  ///< 空闲索引的无锁队列
+};
+
+template <typename T, std::size_t BufferCapacity = (1 << 7)>
+class Storage {
+    static_assert(BufferCapacity >= 2, "BufferCapacity must be at least 2");
+    static_assert((BufferCapacity & (BufferCapacity - 1)) == 0, "BufferCapacity must be a power of two");
+
+   public:
+    struct Handle {
+        typename std::list<StaticBuffer<T, BufferCapacity>>::iterator buffer_it{nullptr};
+        std::size_t index{0};
+    };
+
+    Storage() {
+        buffers_.emplace_back();
+        for (std::size_t i = 0; i < BufferCapacity; ++i) {
+            free_handles_.enqueue(Handle{buffers_.begin(), i});
+        }
+        active_buffers_.emplace_back(true);
+    }
+
+    template <typename Func>
+    std::optional<Handle> allocate(Func&& writer) {
+        Handle handle;
+        if (!free_handles_.dequeue(handle)) {
+            std::unique_lock<std::shared_mutex> lock(tail_mutex_);
+            buffers_.emplace_back();
+            auto new_buffer_it = std::prev(buffers_.end());
+            active_buffers_.emplace_back(true);
+            for (std::size_t i = 0; i < BufferCapacity; ++i) {
+                free_handles_.enqueue(Handle{new_buffer_it, i});
+            }
+            lock.unlock();
+
+            if (!free_handles_.dequeue(handle)) {
+                return std::nullopt;
+            }
+        }
+
+        bool success = handle.buffer_it->allocate(std::forward<Func>(writer)).has_value();
+        if (!success) {
+            return std::nullopt;
+        }
+
+        return handle;
+    }
+
+   private:
+    std::shared_mutex tail_mutex_{};
+    std::list<StaticBuffer<T, BufferCapacity>> buffers_{};
+    std::list<std::atomic<bool>> active_buffers_{};
+    LockFreeQueue<Handle> free_handles_{};
 };
 
 }  // namespace Corona::Kernel::Utils
