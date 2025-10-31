@@ -86,6 +86,35 @@ class StaticBuffer {
     }
 
     /**
+     * @brief 在指定索引处分配并初始化槽位（用于外部句柄管理）
+     *
+     * @tparam Func 可调用对象类型，签名为 void(T&)
+     * @param index 要分配的槽位索引
+     * @param writer 初始化回调，在持有锁的情况下调用
+     * @return 成功返回 true，槽位已占用或索引无效返回 false
+     *
+     * @note 此方法用于外部管理槽位索引的场景（如 Storage 的句柄预分配）
+     * @note 如果 writer 抛出异常，异常会透传给调用者，槽位保持未占用状态
+     * @note 线程安全，独占锁写入数据
+     */
+    template <typename Func>
+    bool allocate_at(std::size_t index, Func&& writer) {
+        if (index >= Capacity) {
+            return false;
+        }
+
+        std::unique_lock<std::shared_mutex> lock(mutexes_[index]);
+        if (occupied_[index].load(std::memory_order_acquire)) {
+            return false;  // 槽位已被占用
+        }
+
+        // 异常透传给调用者，锁由 RAII 自动释放
+        std::invoke(std::forward<Func>(writer), buffer_[index]);
+        occupied_[index].store(true, std::memory_order_release);
+        return true;
+    }
+
+    /**
      * @brief 释放指定槽位
      *
      * @param index 要释放的槽位索引
@@ -312,56 +341,189 @@ class StaticBuffer {
     LockFreeRingBufferQueue<std::size_t, Capacity> free_indices_{};  ///< 空闲索引的无锁队列
 };
 
+/**
+ * @brief 动态扩容的线程安全对象池
+ *
+ * Storage 基于 StaticBuffer 实现，通过句柄预分配策略提供无限容量的抽象。
+ * 当所有现有 buffer 满时，自动创建新的 StaticBuffer 并扩充句柄队列。
+ *
+ * @tparam T 存储的元素类型
+ * @tparam BufferCapacity 每个底层 StaticBuffer 的容量，必须是 2 的幂次且 >= 2
+ *
+ * @note 线程安全性：
+ * - allocate：多线程安全，扩容时使用独占锁
+ * - deallocate：多线程安全，无锁回收句柄
+ * - access/access_mut：多线程安全，通过 StaticBuffer 实现
+ */
 template <typename T, std::size_t BufferCapacity = (1 << 7)>
 class Storage {
     static_assert(BufferCapacity >= 2, "BufferCapacity must be at least 2");
     static_assert((BufferCapacity & (BufferCapacity - 1)) == 0, "BufferCapacity must be a power of two");
 
    public:
+    /**
+     * @brief 句柄结构，用于定位跨 buffer 的槽位
+     */
     struct Handle {
-        typename std::list<StaticBuffer<T, BufferCapacity>>::iterator buffer_it{nullptr};
+        typename std::list<StaticBuffer<T, BufferCapacity>>::iterator buffer_it;
         std::size_t index{0};
+
+        bool operator==(const Handle& other) const noexcept {
+            return buffer_it == other.buffer_it && index == other.index;
+        }
     };
 
+    /**
+     * @brief 构造函数，创建初始 buffer 并预分配所有句柄
+     */
     Storage() {
         buffers_.emplace_back();
+        auto it = buffers_.begin();
         for (std::size_t i = 0; i < BufferCapacity; ++i) {
-            free_handles_.enqueue(Handle{buffers_.begin(), i});
+            free_handles_.enqueue(Handle{it, i});
         }
-        active_buffers_.emplace_back(true);
     }
 
+    Storage(const Storage&) = delete;
+    Storage& operator=(const Storage&) = delete;
+    Storage(Storage&&) = delete;
+    Storage& operator=(Storage&&) = delete;
+
+    ~Storage() = default;
+
+    /**
+     * @brief 分配一个槽位并初始化
+     *
+     * @tparam Func 可调用对象类型，签名为 void(T&)
+     * @param writer 初始化回调，在持有锁的情况下调用
+     * @return 成功返回句柄，失败返回 std::nullopt
+     *
+     * @note 如果所有 buffer 满，会自动创建新 buffer 并扩充句柄队列
+     * @note 如果 writer 抛出异常，分配会回滚，句柄重新入队
+     * @note 线程安全，扩容时使用独占锁保护 buffer 列表
+     */
     template <typename Func>
     std::optional<Handle> allocate(Func&& writer) {
         Handle handle;
         if (!free_handles_.dequeue(handle)) {
-            std::unique_lock<std::shared_mutex> lock(tail_mutex_);
-            buffers_.emplace_back();
-            auto new_buffer_it = std::prev(buffers_.end());
-            active_buffers_.emplace_back(true);
-            for (std::size_t i = 0; i < BufferCapacity; ++i) {
-                free_handles_.enqueue(Handle{new_buffer_it, i});
-            }
-            lock.unlock();
+            // 没有空闲句柄，需要扩容
+            expand_buffers();
 
             if (!free_handles_.dequeue(handle)) {
-                return std::nullopt;
+                return std::nullopt;  // 扩容失败或竞争失败
             }
         }
 
-        bool success = handle.buffer_it->allocate(std::forward<Func>(writer)).has_value();
-        if (!success) {
+        // 使用句柄中指定的索引分配槽位
+        if (!handle.buffer_it->allocate_at(handle.index, std::forward<Func>(writer))) {
+            // 分配失败（槽位已被占用，理论上不应发生），回收句柄
+            free_handles_.enqueue(handle);
             return std::nullopt;
         }
 
         return handle;
     }
 
+    /**
+     * @brief 释放指定句柄对应的槽位
+     *
+     * @param handle 要释放的句柄
+     *
+     * @note 线程安全，独占锁标记空闲 + 无锁回收句柄
+     * @note 释放后句柄会重新入队，可被后续 allocate 复用
+     */
+    void deallocate(const Handle& handle) {
+        handle.buffer_it->deallocate(handle.index);
+        free_handles_.enqueue(handle);
+    }
+
+    /**
+     * @brief 只读访问指定句柄对应的槽位
+     *
+     * @tparam Func 可调用对象类型，签名为 void(const T&)
+     * @param handle 槽位句柄
+     * @param reader 读取回调
+     * @return 成功访问返回 true，槽位未占用返回 false
+     *
+     * @note 线程安全，使用共享锁允许多个读者并发访问
+     * @note 如果 reader 抛出异常，异常会透传给调用者
+     */
+    template <typename Func>
+    bool access(const Handle& handle, Func&& reader) const {
+        return handle.buffer_it->access(handle.index, std::forward<Func>(reader));
+    }
+
+    /**
+     * @brief 可写访问指定句柄对应的槽位
+     *
+     * @tparam Func 可调用对象类型，签名为 void(T&)
+     * @param handle 槽位句柄
+     * @param writer 写入回调
+     * @return 成功访问返回 true，槽位未占用返回 false
+     *
+     * @note 线程安全，使用独占锁确保独占写入
+     * @note 如果 writer 抛出异常，异常会透传给调用者
+     */
+    template <typename Func>
+    bool access_mut(const Handle& handle, Func&& writer) {
+        return handle.buffer_it->access_mut(handle.index, std::forward<Func>(writer));
+    }
+
+    /**
+     * @brief 只读遍历所有已占用槽位
+     *
+     * @tparam Func 可调用对象类型，签名为 void(const T&)
+     * @param reader 读取回调，对每个已占用槽位调用一次
+     *
+     * @note 线程安全，遍历所有 buffer 的所有槽位
+     * @note 如果 reader 抛出异常，该槽位的异常会被静默吞掉，继续遍历其他槽位
+     */
+    template <typename Func>
+    void for_each_const(Func&& reader) const {
+        std::shared_lock<std::shared_mutex> lock(list_mutex_);
+        for (auto& buffer : buffers_) {
+            buffer.for_each_const(std::forward<Func>(reader));
+        }
+    }
+
+    /**
+     * @brief 可写遍历所有已占用槽位
+     *
+     * @tparam Func 可调用对象类型，签名为 void(T&)
+     * @param writer 写入回调，对每个已占用槽位调用一次
+     *
+     * @note 线程安全，遍历所有 buffer 的所有槽位
+     * @note 如果 writer 抛出异常，该槽位的异常会被静默吞掉，继续遍历其他槽位
+     */
+    template <typename Func>
+    void for_each(Func&& writer) {
+        std::shared_lock<std::shared_mutex> lock(list_mutex_);
+        for (auto& buffer : buffers_) {
+            buffer.for_each(std::forward<Func>(writer));
+        }
+    }
+
    private:
-    std::shared_mutex tail_mutex_{};
-    std::list<StaticBuffer<T, BufferCapacity>> buffers_{};
-    std::list<std::atomic<bool>> active_buffers_{};
-    LockFreeQueue<Handle> free_handles_{};
+    /**
+     * @brief 扩容：创建新 buffer 并生成对应的句柄
+     *
+     * @note 使用独占锁保护 buffer 列表
+     */
+    void expand_buffers() {
+        std::unique_lock<std::shared_mutex> lock(list_mutex_);
+
+        buffers_.emplace_back();
+        auto new_buffer_it = std::prev(buffers_.end());
+
+        // 为新 buffer 的所有槽位生成句柄并入队
+        for (std::size_t i = 0; i < BufferCapacity; ++i) {
+            free_handles_.enqueue(Handle{new_buffer_it, i});
+        }
+    }
+
+    mutable std::shared_mutex list_mutex_;                ///< 保护 buffers_ 列表的锁
+    std::list<StaticBuffer<T, BufferCapacity>> buffers_;  ///< 底层 buffer 列表
+    LockFreeQueue<Handle> free_handles_;                  ///< 空闲句柄的无锁队列
 };
 
 }  // namespace Corona::Kernel::Utils
