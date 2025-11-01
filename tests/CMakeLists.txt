@@ -137,6 +137,17 @@ target_link_libraries(kernel_cache_aligned_allocator_test
         corona_pal
 )
 
+# Platform 测试
+add_executable(kernel_platform_test
+    kernel/platform_test.cpp
+)
+
+target_link_libraries(kernel_platform_test
+    PRIVATE
+        corona_kernel
+        corona_pal
+)
+
 # ========================================
 # Multi-threaded Stability Tests
 # ========================================
@@ -286,6 +297,12 @@ add_test(
 add_test(
     NAME CacheAlignedAllocator
     COMMAND kernel_cache_aligned_allocator_test
+)
+
+# 注册 Platform 测试
+add_test(
+    NAME Platform
+    COMMAND kernel_platform_test
 )
 
 # 注册 EventBus 多线程测试
