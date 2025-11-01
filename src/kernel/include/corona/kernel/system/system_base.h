@@ -1,6 +1,5 @@
 #pragma once
 #include <atomic>
-#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
@@ -68,148 +67,50 @@ class SystemBase : public ISystem {
      *
      * 初始化系统状态为 idle，默认目标帧率 60 FPS
      */
-    SystemBase()
-        : state_(SystemState::idle),
-          should_run_(false),
-          is_paused_(false),
-          context_(nullptr),
-          target_fps_(60),
-          frame_number_(0),
-          last_delta_time_(0.0f),
-          total_frames_(0),
-          total_frame_time_(0.0),
-          max_frame_time_(0.0f),
-          stats_window_size_(60) {}  ///< 60 帧滑动窗口（保留用于未来）
+    SystemBase();
 
     /**
      * @brief 析构函数
      *
      * 如果线程仍在运行，自动调用 stop() 确保资源释放
      */
-    virtual ~SystemBase() {
-        if (thread_.joinable()) {
-            stop();
-        }
-    }
+    virtual ~SystemBase();
 
     // ========================================
     // ISystem 接口实现
     // ========================================
 
-    SystemState get_state() const override {
-        return state_.load(std::memory_order_acquire);
-    }
+    SystemState get_state() const override;
 
-    int get_target_fps() const override {
-        return target_fps_;
-    }
+    int get_target_fps() const override;
 
     /**
      * @brief 设置目标帧率
      * @param fps 目标 FPS，0 表示不限制
      */
-    void set_target_fps(int fps) {
-        target_fps_ = fps;
-    }
+    void set_target_fps(int fps);
 
-    void start() override {
-        std::lock_guard<std::mutex> lock(control_mutex_);
+    void start() override;
 
-        // 只能从 idle 或 stopped 状态启动
-        if (state_ != SystemState::idle && state_ != SystemState::stopped) {
-            return;
-        }
+    void pause() override;
 
-        should_run_.store(true, std::memory_order_release);
-        is_paused_.store(false, std::memory_order_release);
-        state_.store(SystemState::running, std::memory_order_release);
+    void resume() override;
 
-        // 创建工作线程
-        thread_ = std::thread(&SystemBase::thread_loop, this);
-    }
-
-    void pause() override {
-        std::lock_guard<std::mutex> lock(control_mutex_);
-
-        if (state_ != SystemState::running) {
-            return;
-        }
-
-        is_paused_.store(true, std::memory_order_release);
-        state_.store(SystemState::paused, std::memory_order_release);
-    }
-
-    void resume() override {
-        std::lock_guard<std::mutex> lock(control_mutex_);
-
-        if (state_ != SystemState::paused) {
-            return;
-        }
-
-        {
-            std::lock_guard<std::mutex> pause_lock(pause_mutex_);
-            is_paused_.store(false, std::memory_order_release);
-            state_.store(SystemState::running, std::memory_order_release);
-        }
-        pause_cv_.notify_one();  // 唤醒暂停的线程
-    }
-
-    void stop() override {
-        std::lock_guard<std::mutex> lock(control_mutex_);
-
-        if (state_ == SystemState::stopped || state_ == SystemState::idle) {
-            return;
-        }
-
-        state_.store(SystemState::stopping, std::memory_order_release);
-        should_run_.store(false, std::memory_order_release);
-
-        // 唤醒可能在暂停或等待的线程
-        {
-            std::lock_guard<std::mutex> pause_lock(pause_mutex_);
-            is_paused_.store(false, std::memory_order_release);
-        }
-        pause_cv_.notify_one();
-
-        // 等待线程结束
-        if (thread_.joinable()) {
-            thread_.join();
-        }
-
-        state_.store(SystemState::stopped, std::memory_order_release);
-    }
+    void stop() override;
 
     // ========================================
     // 性能统计接口实现
     // ========================================
 
-    float get_actual_fps() const override {
-        std::lock_guard<std::mutex> lock(stats_mutex_);
-        if (total_frames_ == 0) return 0.0f;
-        return static_cast<float>(total_frames_) / total_frame_time_;
-    }
+    float get_actual_fps() const override;
 
-    float get_average_frame_time() const override {
-        std::lock_guard<std::mutex> lock(stats_mutex_);
-        if (total_frames_ == 0) return 0.0f;
-        return static_cast<float>((total_frame_time_ / total_frames_) * 1000.0);  // 转换为毫秒
-    }
+    float get_average_frame_time() const override;
 
-    float get_max_frame_time() const override {
-        std::lock_guard<std::mutex> lock(stats_mutex_);
-        return max_frame_time_;
-    }
+    float get_max_frame_time() const override;
 
-    std::uint64_t get_total_frames() const override {
-        return total_frames_.load(std::memory_order_relaxed);
-    }
+    std::uint64_t get_total_frames() const override;
 
-    void reset_stats() override {
-        std::lock_guard<std::mutex> lock(stats_mutex_);
-        total_frames_.store(0, std::memory_order_relaxed);
-        total_frame_time_ = 0.0;
-        max_frame_time_ = 0.0f;
-    }
+    void reset_stats() override;
 
    protected:
     // ========================================
@@ -222,21 +123,15 @@ class SystemBase : public ISystem {
      *
      * 在 initialize() 后可用，提供对内核服务的访问
      */
-    ISystemContext* context() {
-        return context_;
-    }
+    ISystemContext* context();
 
-    const ISystemContext* context() const {
-        return context_;
-    }
+    const ISystemContext* context() const;
 
     /**
      * @brief 获取当前帧号
      * @return 系统启动以来的帧序号（从 0 开始）
      */
-    uint64_t frame_number() const {
-        return frame_number_;
-    }
+    uint64_t frame_number() const;
 
     /**
      * @brief 获取上一帧的时间间隔
@@ -244,9 +139,7 @@ class SystemBase : public ISystem {
      *
      * 在 update() 中使用，用于时间相关的计算（如物理模拟、动画）
      */
-    float delta_time() const {
-        return last_delta_time_;
-    }
+    float delta_time() const;
 
     /**
      * @brief 线程循环函数
@@ -260,64 +153,7 @@ class SystemBase : public ISystem {
      *
      * 派生类可以覆盖此方法以实现自定义行为
      */
-    virtual void thread_loop() {
-        auto last_time = std::chrono::high_resolution_clock::now();
-
-        // 计算帧时间间隔
-        std::chrono::microseconds frame_duration(0);
-        if (target_fps_ > 0) {
-            frame_duration = std::chrono::microseconds(1000000 / target_fps_);
-        }
-
-        while (should_run_.load(std::memory_order_acquire)) {
-            auto frame_start = std::chrono::high_resolution_clock::now();
-
-            // 检查暂停状态
-            if (is_paused_.load(std::memory_order_acquire)) {
-                std::unique_lock<std::mutex> lock(pause_mutex_);
-                pause_cv_.wait(lock, [this] {
-                    return !is_paused_.load(std::memory_order_acquire) ||
-                           !should_run_.load(std::memory_order_acquire);
-                });
-                // 恢复后重置时间，避免大的 delta_time 跳变
-                last_time = std::chrono::high_resolution_clock::now();
-                continue;
-            }
-
-            // 计算 delta_time
-            auto current_time = std::chrono::high_resolution_clock::now();
-            last_delta_time_ = std::chrono::duration<float>(current_time - last_time).count();
-            last_time = current_time;
-
-            // 调用子类的更新逻辑
-            update();
-
-            frame_number_++;
-
-            // 收集性能统计
-            auto frame_end = std::chrono::high_resolution_clock::now();
-            float frame_time = std::chrono::duration<float>(frame_end - frame_start).count();
-            float frame_time_ms = frame_time * 1000.0f;
-
-            {
-                std::lock_guard<std::mutex> lock(stats_mutex_);
-                total_frames_.fetch_add(1, std::memory_order_relaxed);
-                total_frame_time_ += frame_time;
-                if (frame_time_ms > max_frame_time_) {
-                    max_frame_time_ = frame_time_ms;
-                }
-            }
-
-            // 帧率限制（如果目标 FPS > 0）
-            if (target_fps_ > 0) {
-                auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(frame_end - frame_start);
-
-                if (elapsed < frame_duration) {
-                    std::this_thread::sleep_for(frame_duration - elapsed);
-                }
-            }
-        }
-    }
+    virtual void thread_loop();
 
    private:
     friend class SystemManager;  ///< 允许 SystemManager 设置 context
@@ -326,9 +162,7 @@ class SystemBase : public ISystem {
      * @brief 设置系统上下文（由 SystemManager 调用）
      * @param context 系统上下文指针
      */
-    void set_context(ISystemContext* context) {
-        context_ = context;
-    }
+    void set_context(ISystemContext* context);
 
     // ========================================
     // 内部状态
