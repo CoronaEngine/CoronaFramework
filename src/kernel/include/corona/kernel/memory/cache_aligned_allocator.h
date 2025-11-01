@@ -3,6 +3,8 @@
 #include <limits>
 #include <new>
 
+#include "corona/pal/cfw_platform.h"
+
 namespace Corona::Kernal::Memory {
 
 #if defined(__cpp_lib_hardware_interference_size)
@@ -54,7 +56,7 @@ class CacheAlignedAllocator {
         const size_type allocate_bytes = n * sizeof(T);
         const size_type rounded_size = align_up(allocate_bytes, Alignment);
 
-#ifdef _MSC_VER
+#if defined(CFW_COMPILER_CLANG_CL) || defined(CFW_COMPILER_MSVC)
         void* ptr = _aligned_malloc(rounded_size, Alignment);
 #else
         void* ptr = std::aligned_alloc(Alignment, rounded_size);
@@ -67,7 +69,7 @@ class CacheAlignedAllocator {
     }
 
     void deallocate(pointer p, size_type) noexcept {
-#ifdef _MSC_VER
+#if defined(CFW_COMPILER_CLANG_CL) || defined(CFW_COMPILER_MSVC)
         _aligned_free(p);
 #else
         std::free(p);
