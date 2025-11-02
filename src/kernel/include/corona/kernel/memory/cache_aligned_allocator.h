@@ -18,6 +18,24 @@ constexpr std::size_t CacheLineSize = 64;
 [[nodiscard]] bool is_aligned(void* ptr, std::size_t alignment);
 [[nodiscard]] bool is_power_of_two(std::size_t value);
 
+inline void* aligned_malloc(std::size_t size, std::size_t alignment) 
+{
+    void* ptr = nullptr;
+#if _WIN32 || _WIN64
+    ptr = _aligned_malloc(size, alignment);
+#else
+    ptr = std::aligned_alloc(alignment, size);
+#endif
+    return ptr;
+}
+
+inline void* aligned_free(void* ptr) {
+#if _WIN32 || _WIN64
+    _aligned_free(ptr);
+#endif
+    return nullptr;
+}
+
 template <std::size_t Value>
 [[nodiscard]] constexpr bool is_power_of_two() {
     return Value != 0 && (Value & (Value - 1)) == 0;
