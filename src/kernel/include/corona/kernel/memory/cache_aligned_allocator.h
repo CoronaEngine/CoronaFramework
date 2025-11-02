@@ -20,6 +20,10 @@ constexpr std::size_t CacheLineSize = 64;
 
 inline void* aligned_malloc(std::size_t size, std::size_t alignment) 
 {
+    if (size % alignment != 0) {
+        size = ((size + alignment - 1) / alignment) * alignment;
+    }
+
     void* ptr = nullptr;
 #if _WIN32 || _WIN64
     ptr = _aligned_malloc(size, alignment);
