@@ -55,8 +55,6 @@ corona_add_test(kernel_lockfree_queue_test kernel/lockfree_queue_test.cpp)
 # 性能基准测试
 corona_add_test(kernel_benchmark_test kernel/benchmark_test.cpp)
 
-corona_add_test(kernel_static_buffer_test kernel/static_buffer_test.cpp)
-
 # CacheAlignedAllocator 测试
 corona_add_test(kernel_cache_aligned_allocator_test kernel/cache_aligned_allocator_test.cpp)
 
@@ -145,11 +143,6 @@ add_test(
 add_test(
     NAME Benchmark
     COMMAND kernel_benchmark_test
-)
-
-add_test(
-    NAME StaticBuffer
-    COMMAND kernel_static_buffer_test
 )
 
 # 注册 CacheAlignedAllocator 测试

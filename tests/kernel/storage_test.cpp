@@ -14,30 +14,30 @@ TEST(StorageTests, BasicAllocateAndAccess) {
 
     // 分配并初始化
     auto handle = storage.allocate([](int& value) { value = 42; });
-    ASSERT_TRUE(handle.has_value());
+    ASSERT_TRUE(handle > 0);
 
     // 只读访问
-    bool read_success = storage.read(*handle, [](const int& value) {
+    bool read_success = storage.read(handle, [](const int& value) {
         ASSERT_EQ(value, 42);
     });
     ASSERT_TRUE(read_success);
 
     // 可写访问
-    bool write_success = storage.write(*handle, [](int& value) {
+    bool write_success = storage.write(handle, [](int& value) {
         value = 100;
     });
     ASSERT_TRUE(write_success);
 
     // 验证修改
-    storage.read(*handle, [](const int& value) {
+    storage.read(handle, [](const int& value) {
         ASSERT_EQ(value, 100);
     });
 
     // 释放
-    storage.deallocate(*handle);
+    storage.deallocate(handle);
 
     // 验证释放后无法访问
-    bool access_after_free = storage.read(*handle, [](const int&) {});
+    bool access_after_free = storage.read(handle, [](const int&) {});
     ASSERT_FALSE(access_after_free);
 }
 
@@ -48,8 +48,8 @@ TEST(StorageTests, MultipleAllocations) {
     // 分配多个槽位
     for (int i = 0; i < 8; ++i) {
         auto handle = storage.allocate([i](int& value) { value = i * 10; });
-        ASSERT_TRUE(handle.has_value());
-        handles.push_back(*handle);
+        ASSERT_TRUE(handle > 0);
+        handles.push_back(handle);
     }
 
     // 验证所有值
@@ -66,8 +66,8 @@ TEST(StorageTests, MultipleAllocations) {
 
     // 验证可以重新分配
     auto recycled = storage.allocate([](int& value) { value = 999; });
-    ASSERT_TRUE(recycled.has_value());
-    storage.read(*recycled, [](const int& value) {
+    ASSERT_TRUE(recycled > 0);
+    storage.read(recycled, [](const int& value) {
         ASSERT_EQ(value, 999);
     });
 }
@@ -81,8 +81,8 @@ TEST(StorageTests, AutoExpansion) {
     const std::size_t total_allocations = initial_capacity * 3;
     for (std::size_t i = 0; i < total_allocations; ++i) {
         auto handle = storage.allocate([i](int& value) { value = static_cast<int>(i); });
-        ASSERT_TRUE(handle.has_value());
-        handles.push_back(*handle);
+        ASSERT_TRUE(handle > 0);
+        handles.push_back(handle);
     }
 
     // 验证所有值
@@ -105,8 +105,8 @@ TEST(StorageTests, ForEachTraversal) {
     // 分配一些槽位
     for (int i = 0; i < 10; ++i) {
         auto handle = storage.allocate([i](int& value) { value = i + 1; });
-        ASSERT_TRUE(handle.has_value());
-        handles.push_back(*handle);
+        ASSERT_TRUE(handle > 0);
+        handles.push_back(handle);
     }
 
     // 只读遍历并统计
@@ -154,17 +154,17 @@ TEST(StorageTests, ConcurrentAllocateAndDeallocate) {
                 value = iteration;
             });
 
-            if (handle.has_value()) {
+            if (handle > 0) {
                 allocations.fetch_add(1, std::memory_order_relaxed);
 
                 // 验证读取
-                bool read_ok = storage.read(*handle, [iteration](const int& value) {
+                bool read_ok = storage.read(handle, [iteration](const int& value) {
                     ASSERT_EQ(value, iteration);
                 });
                 ASSERT_TRUE(read_ok);
 
                 // 释放
-                storage.deallocate(*handle);
+                storage.deallocate(handle);
                 deallocations.fetch_add(1, std::memory_order_relaxed);
             } else {
                 std::this_thread::yield();
@@ -210,7 +210,7 @@ TEST(StorageTests, MixedConcurrentOperations) {
 
         while (!stop.load(std::memory_order_relaxed)) {
             if (auto handle = storage.allocate([](int& value) { value = 1; })) {
-                owned.push_back(*handle);
+                owned.push_back(handle);
                 allocations.fetch_add(1, std::memory_order_relaxed);
             }
 
@@ -285,19 +285,19 @@ TEST(StorageTests, ExceptionSafety) {
 
     // 验证可以继续正常分配
     auto handle = storage.allocate([](int& value) { value = 42; });
-    ASSERT_TRUE(handle.has_value());
-    storage.read(*handle, [](const int& value) {
+    ASSERT_TRUE(handle > 0);
+    storage.read(handle, [](const int& value) {
         ASSERT_EQ(value, 42);
     });
-    storage.deallocate(*handle);
+    storage.deallocate(handle);
 
     // write 时抛异常
     handle = storage.allocate([](int& value) { value = 100; });
-    ASSERT_TRUE(handle.has_value());
+    ASSERT_TRUE(handle > 0);
 
     exception_caught = false;
     try {
-        storage.write(*handle, [](int&) {
+        storage.write(handle, [](int&) {
             throw std::runtime_error("Access exception");
         });
     } catch (const std::runtime_error&) {
@@ -306,10 +306,10 @@ TEST(StorageTests, ExceptionSafety) {
     ASSERT_TRUE(exception_caught);
 
     // 验证槽位仍可访问（数据可能处于部分修改状态）
-    bool still_accessible = storage.read(*handle, [](const int&) {});
+    bool still_accessible = storage.read(handle, [](const int&) {});
     ASSERT_TRUE(still_accessible);
 
-    storage.deallocate(*handle);
+    storage.deallocate(handle);
 }
 
 TEST(StorageTests, ComprehensiveConcurrentOperations) {
@@ -338,7 +338,7 @@ TEST(StorageTests, ComprehensiveConcurrentOperations) {
         while (!stop.load(std::memory_order_relaxed)) {
             // 分配新槽位
             if (auto handle = storage.allocate([](int& value) { value = 0; })) {
-                owned.push_back(*handle);
+                owned.push_back(handle);
                 allocations.fetch_add(1, std::memory_order_relaxed);
             }
 
@@ -372,7 +372,7 @@ TEST(StorageTests, ComprehensiveConcurrentOperations) {
             // 尝试分配一批句柄用于后续释放
             for (int i = 0; i < 10 && to_deallocate.size() < capacity / 4; ++i) {
                 if (auto handle = storage.allocate([i](int& value) { value = i; })) {
-                    to_deallocate.push_back(*handle);
+                    to_deallocate.push_back(handle);
                     allocations.fetch_add(1, std::memory_order_relaxed);
                 }
             }
@@ -407,7 +407,7 @@ TEST(StorageTests, ComprehensiveConcurrentOperations) {
             // 获取一些句柄进行读取
             for (int i = 0; i < 5; ++i) {
                 if (auto handle = storage.allocate([](int& value) { value = 999; })) {
-                    cached_handles.push_back(*handle);
+                    cached_handles.push_back(handle);
                 }
             }
 
@@ -443,7 +443,7 @@ TEST(StorageTests, ComprehensiveConcurrentOperations) {
             // 获取一些句柄进行写入
             for (int i = 0; i < 5; ++i) {
                 if (auto handle = storage.allocate([](int& value) { value = 0; })) {
-                    cached_handles.push_back(*handle);
+                    cached_handles.push_back(handle);
                 }
             }
 

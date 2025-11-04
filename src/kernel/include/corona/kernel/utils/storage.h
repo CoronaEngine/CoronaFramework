@@ -3,10 +3,14 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
+#include <exception>
 #include <functional>
+#include <iostream>
 #include <list>
 #include <mutex>
 #include <optional>
+#include <queue>
 #include <shared_mutex>
 #include <stdexcept>
 #include <utility>
@@ -19,30 +23,23 @@ namespace Corona::Kernel::Utils {
 /**
  * @brief 线程安全的固定容量静态缓冲区
  *
- * StaticBuffer 提供了一个固定容量的对象池，支持并发的分配、访问、释放和遍历操作。
- * 内部使用无锁环形队列管理空闲索引，每个槽位独立加锁以实现细粒度并发控制。
+ * StaticBuffer 提供了一个固定容量的对象池数据结构。
+ * 每个槽位独立加锁以实现细粒度并发控制。
  *
  * @tparam T 存储的元素类型
  * @tparam Capacity 缓冲区容量，必须是 2 的幂次且 >= 2
  *
- * @note 线程安全性：
- * - allocate/deallocate：多线程安全
- * - read/write：多线程安全，读写使用共享锁/独占锁
- * - for_each_read/for_each_write：多线程安全，采用 try-lock 避免阻塞
+ * @note 此结构体仅作为 Storage 的内部数据容器使用，不提供分配/释放等高级操作
+ * @note 包含三个核心成员：buffer（数据数组）、occupied（占用标志）、mutexes（槽位锁）
  */
 template <typename T, std::size_t Capacity>
-class StaticBuffer {
+struct StaticBuffer {
     static_assert(Capacity >= 2, "Capacity must be at least 2");
     static_assert((Capacity & (Capacity - 1)) == 0, "Capacity must be a power of two");
 
-   public:
-    /**
-     * @brief 构造函数，初始化所有槽位为空闲状态
-     */
     StaticBuffer() {
         for (std::size_t i = 0; i < Capacity; ++i) {
-            free_indices_.enqueue(i);
-            occupied_[i].store(false, std::memory_order_relaxed);
+            occupied[i].store(false, std::memory_order_relaxed);
         }
     }
 
@@ -53,334 +50,53 @@ class StaticBuffer {
 
     ~StaticBuffer() = default;
 
-    /**
-     * @brief 分配一个槽位并初始化
-     *
-     * @tparam Func 可调用对象类型，签名为 void(T&)
-     * @param writer 初始化回调，在持有锁的情况下调用
-     * @return 成功返回槽位索引，失败返回 std::nullopt
-     *
-     * @note 如果 writer 抛出异常，分配会回滚，槽位重新标记为空闲
-     * @note 线程安全，无锁获取索引 + 独占锁写入数据
-     */
-    template <typename Func>
-    std::optional<std::size_t> allocate(Func&& writer) {
-        std::size_t index;
-        if (!free_indices_.dequeue(index)) {
-            return std::nullopt;
-        }
-
-        std::unique_lock<std::shared_mutex> lock(mutexes_[index]);
-        try {
-            std::invoke(std::forward<Func>(writer), buffer_[index]);
-        } catch (...) {
-            occupied_[index].store(false, std::memory_order_relaxed);
-            lock.unlock();
-            free_indices_.enqueue(index);
-            throw;
-        }
-
-        occupied_[index].store(true, std::memory_order_release);
-        lock.unlock();
-        return index;
-    }
-
-    /**
-     * @brief 在指定索引处分配并初始化槽位（用于外部句柄管理）
-     *
-     * @tparam Func 可调用对象类型，签名为 void(T&)
-     * @param index 要分配的槽位索引
-     * @param writer 初始化回调，在持有锁的情况下调用
-     * @return 成功返回 true，槽位已占用或索引无效返回 false
-     *
-     * @note 此方法用于外部管理槽位索引的场景（如 Storage 的句柄预分配）
-     * @note 如果 writer 抛出异常，异常会透传给调用者，槽位保持未占用状态
-     * @note 线程安全，独占锁写入数据
-     */
-    template <typename Func>
-    bool allocate_at(std::size_t index, Func&& writer) {
-        if (index >= Capacity) {
-            return false;
-        }
-
-        std::unique_lock<std::shared_mutex> lock(mutexes_[index]);
-        if (occupied_[index].load(std::memory_order_acquire)) {
-            return false;  // 槽位已被占用
-        }
-
-        // 异常透传给调用者，锁由 RAII 自动释放
-        std::invoke(std::forward<Func>(writer), buffer_[index]);
-        occupied_[index].store(true, std::memory_order_release);
-        return true;
-    }
-
-    /**
-     * @brief 释放指定槽位
-     *
-     * @param index 要释放的槽位索引
-     * @throws std::out_of_range 如果索引超出范围
-     *
-     * @note 线程安全，独占锁标记空闲 + 无锁回收索引
-     */
-    void deallocate(std::size_t index) {
-        if (index >= Capacity) {
-            throw std::out_of_range("StaticBuffer::deallocate: index out of range");
-        }
-
-        {
-            std::unique_lock<std::shared_mutex> lock(mutexes_[index]);
-            occupied_[index].store(false, std::memory_order_release);
-        }
-
-        free_indices_.enqueue(index);
-    }
-
-    /**
-     * @brief 只读访问指定槽位
-     *
-     * @tparam Func 可调用对象类型，签名为 void(const T&)
-     * @param index 槽位索引
-     * @param reader 读取回调，在持有共享锁的情况下调用
-     * @return 成功访问返回 true，槽位未占用或索引无效返回 false
-     *
-     * @note 线程安全，使用共享锁允许多个读者并发访问
-     * @note 双重检查 occupied_ 标志避免访问已释放的槽位
-     * @note 如果 reader 抛出异常，异常会透传给调用者，但锁会被正确释放
-     */
-    template <typename Func>
-    bool read(std::size_t index, Func&& reader) const {
-        if (index >= Capacity) {
-            return false;
-        }
-
-        if (!occupied_[index].load(std::memory_order_acquire)) {
-            return false;
-        }
-
-        std::shared_lock<std::shared_mutex> lock(mutexes_[index]);
-        if (!occupied_[index].load(std::memory_order_acquire)) {
-            return false;
-        }
-
-        // 异常透传给调用者，锁由 RAII 自动释放
-        std::invoke(std::forward<Func>(reader), buffer_[index]);
-        return true;
-    }
-
-    /**
-     * @brief 可写访问指定槽位
-     *
-     * @tparam Func 可调用对象类型，签名为 void(T&)
-     * @param index 槽位索引
-     * @param writer 写入回调，在持有独占锁的情况下调用
-     * @return 成功访问返回 true，槽位未占用或索引无效返回 false
-     *
-     * @note 线程安全，使用独占锁确保独占写入
-     * @note 双重检查 occupied_ 标志避免访问已释放的槽位
-     * @note 如果 writer 抛出异常，异常会透传给调用者，但锁会被正确释放；数据可能处于部分修改状态
-     */
-    template <typename Func>
-    bool write(std::size_t index, Func&& writer) {
-        if (index >= Capacity) {
-            return false;
-        }
-
-        if (!occupied_[index].load(std::memory_order_acquire)) {
-            return false;
-        }
-
-        std::unique_lock<std::shared_mutex> lock(mutexes_[index]);
-        if (!occupied_[index].load(std::memory_order_acquire)) {
-            return false;
-        }
-
-        // 异常透传给调用者，锁由 RAII 自动释放
-        std::invoke(std::forward<Func>(writer), buffer_[index]);
-        return true;
-    }
-
-    /**
-     * @brief 只读遍历所有已占用槽位
-     *
-     * @tparam Func 可调用对象类型，签名为 void(const T&)
-     * @param reader 读取回调，对每个已占用槽位调用一次
-     *
-     * @note 线程安全，使用 try_lock 避免阻塞：
-     *       1. 第一轮尝试快速锁定所有槽位，锁定失败的槽位记录到 skipped
-     *       2. 第二轮对 skipped 中的槽位阻塞等待锁
-     * @note 遍历期间新分配的槽位可能被观察到，已释放的槽位会被跳过
-     * @note 如果 reader 抛出异常，该槽位的异常会被静默吞掉，继续遍历其他槽位
-     */
-    template <typename Func>
-    void for_each_read(Func&& reader) const {
-        std::vector<std::size_t> skipped;
-        skipped.reserve(Capacity);
-
-        for (std::size_t i = 0; i < Capacity; ++i) {
-            if (!occupied_[i].load(std::memory_order_acquire)) {
-                continue;
-            }
-
-            std::shared_lock<std::shared_mutex> lock(mutexes_[i], std::defer_lock);
-            if (lock.try_lock()) {
-                if (occupied_[i].load(std::memory_order_acquire)) {
-                    try {
-                        std::invoke(std::forward<Func>(reader), buffer_[i]);
-                    } catch (...) {
-                        // 静默吞掉异常，继续处理下一个槽位
-                    }
-                }
-            } else {
-                skipped.push_back(i);
-            }
-        }
-
-        for (std::size_t index : skipped) {
-            if (!occupied_[index].load(std::memory_order_acquire)) {
-                continue;
-            }
-            std::shared_lock<std::shared_mutex> lock(mutexes_[index]);
-            if (occupied_[index].load(std::memory_order_acquire)) {
-                try {
-                    std::invoke(std::forward<Func>(reader), buffer_[index]);
-                } catch (...) {
-                    // 静默吞掉异常，继续处理下一个槽位
-                }
-            }
-        }
-    }
-
-    /**
-     * @brief 可写遍历所有已占用槽位
-     *
-     * @tparam Func 可调用对象类型，签名为 void(T&)
-     * @param writer 写入回调，对每个已占用槽位调用一次
-     *
-     * @note 线程安全，使用 try_lock 避免阻塞：
-     *       1. 第一轮尝试快速锁定所有槽位，锁定失败的槽位记录到 skipped
-     *       2. 第二轮对 skipped 中的槽位阻塞等待锁
-     * @note 遍历期间新分配的槽位可能被观察到，已释放的槽位会被跳过
-     * @note 如果 writer 抛出异常，该槽位的异常会被静默吞掉，继续遍历其他槽位；数据可能处于部分修改状态
-     */
-    template <typename Func>
-    void for_each_write(Func&& writer) {
-        std::vector<std::size_t> skipped;
-        skipped.reserve(Capacity);
-
-        for (std::size_t i = 0; i < Capacity; ++i) {
-            if (!occupied_[i].load(std::memory_order_acquire)) {
-                continue;
-            }
-
-            std::unique_lock<std::shared_mutex> lock(mutexes_[i], std::defer_lock);
-            if (lock.try_lock()) {
-                if (occupied_[i].load(std::memory_order_acquire)) {
-                    try {
-                        std::invoke(std::forward<Func>(writer), buffer_[i]);
-                    } catch (...) {
-                        // 静默吞掉异常，继续处理下一个槽位
-                    }
-                }
-            } else {
-                skipped.push_back(i);
-            }
-        }
-
-        for (std::size_t index : skipped) {
-            if (!occupied_[index].load(std::memory_order_acquire)) {
-                continue;
-            }
-            std::unique_lock<std::shared_mutex> lock(mutexes_[index]);
-            if (occupied_[index].load(std::memory_order_acquire)) {
-                try {
-                    std::invoke(std::forward<Func>(writer), buffer_[index]);
-                } catch (...) {
-                    // 静默吞掉异常，继续处理下一个槽位
-                }
-            }
-        }
-    }
-
-    /**
-     * @brief 获取缓冲区总容量
-     *
-     * @return 缓冲区容量（编译期常量）
-     *
-     * @note 线程安全，无副作用
-     */
-    [[nodiscard]] consteval std::size_t capacity() const noexcept {
-        return Capacity;
-    }
-
-    /**
-     * @brief 检查缓冲区是否为空（所有槽位均空闲）
-     *
-     * @return 如果所有槽位都未被占用则返回 true
-     *
-     * @note 线程安全，但结果为瞬时快照，可能在返回后立即失效
-     */
-    [[nodiscard]] bool empty() const noexcept {
-        return free_indices_.size() == Capacity;
-    }
-
-    /**
-     * @brief 检查缓冲区是否已满（所有槽位均已占用）
-     *
-     * @return 如果没有空闲槽位则返回 true
-     *
-     * @note 线程安全，但结果为瞬时快照，可能在返回后立即失效
-     */
-    [[nodiscard]] bool full() const noexcept {
-        return free_indices_.empty();
-    }
-
-   private:
-    std::array<T, Capacity> buffer_{};                               ///< 数据存储数组
-    std::array<std::atomic<bool>, Capacity> occupied_{};             ///< 槽位占用标志，原子操作确保可见性
-    mutable std::array<std::shared_mutex, Capacity> mutexes_{};      ///< 每个槽位的独立共享锁
-    LockFreeRingBufferQueue<std::size_t, Capacity> free_indices_{};  ///< 空闲索引的无锁队列
+    std::array<T, Capacity> buffer{};                    ///< 数据存储数组
+    std::array<std::atomic<bool>, Capacity> occupied{};  ///< 槽位占用标志，原子操作确保可见性
+    std::array<std::shared_mutex, Capacity> mutexes{};   ///< 每个槽位的独立共享锁
 };
 
 /**
  * @brief 动态扩容的线程安全对象池
  *
- * Storage 基于 StaticBuffer 实现，通过句柄预分配策略提供无限容量的抽象。
- * 当所有现有 buffer 满时，自动创建新的 StaticBuffer 并扩充句柄队列。
+ * Storage 基于 StaticBuffer 实现，通过指针句柄策略提供动态扩容的对象池。
+ * 当所有现有 buffer 满时，自动创建新的 StaticBuffer 并将新槽位加入空闲队列。
  *
  * @tparam T 存储的元素类型
  * @tparam BufferCapacity 每个底层 StaticBuffer 的容量，必须是 2 的幂次且 >= 2
+ * @tparam InitialBuffers 初始 buffer 数量，必须 >= 1
+ *
+ * @note 句柄类型：
+ * - Handle 是 std::uintptr_t 类型，存储槽位的实际内存地址
+ * - 通过 get_parent_buffer() 根据地址范围反查所属的 StaticBuffer
  *
  * @note 线程安全性：
- * - allocate：多线程安全，扩容时使用独占锁
- * - deallocate：多线程安全，无锁回收句柄
- * - read/write：多线程安全，通过 StaticBuffer 实现
+ * - allocate：多线程安全，扩容时使用独占锁保护 buffer 列表
+ * - deallocate：多线程安全，使用独占锁标记槽位空闲后回收句柄
+ * - read/write：多线程安全，分别使用共享锁/独占锁访问槽位
+ * - for_each_read/for_each_write：多线程安全，采用 try_lock 避免死锁，跳过的槽位稍后重试
  */
-template <typename T, std::size_t BufferCapacity = (1 << 7)>
+template <typename T, std::size_t BufferCapacity = 128, std::size_t InitialBuffers = 2>
 class Storage {
+    static_assert(InitialBuffers >= 1, "InitialBuffers must be at least 1");
     static_assert(BufferCapacity >= 2, "BufferCapacity must be at least 2");
     static_assert((BufferCapacity & (BufferCapacity - 1)) == 0, "BufferCapacity must be a power of two");
 
    public:
-    /**
-     * @brief 句柄结构，用于定位跨 buffer 的槽位
-     */
-    struct Handle {
-        typename std::list<StaticBuffer<T, BufferCapacity>>::iterator buffer_it;
-        std::size_t index{0};
+    using Handle = std::uintptr_t;  ///< 句柄类型，存储指向槽位的实际内存地址
 
-        bool operator==(const Handle& other) const noexcept {
-            return buffer_it == other.buffer_it && index == other.index;
-        }
-    };
-
+   public:
     /**
-     * @brief 构造函数，创建初始 buffer 并预分配所有句柄
+     * @brief 构造函数，创建初始 buffer 并预分配所有槽位句柄
+     *
+     * @note 创建 InitialBuffers 个 StaticBuffer，每个包含 BufferCapacity 个槽位
+     * @note 将所有槽位的地址作为句柄加入空闲队列
      */
     Storage() {
-        buffers_.emplace_back();
-        auto it = buffers_.begin();
-        for (std::size_t i = 0; i < BufferCapacity; ++i) {
-            free_handles_.enqueue(Handle{it, i});
+        for (std::size_t i = 0; i < InitialBuffers; ++i) {
+            buffers_.emplace_back();
+            for (std::size_t j = 0; j < BufferCapacity; ++j) {
+                free_slots_.enqueue(reinterpret_cast<Handle>(&(buffers_.back().buffer[j])));
+            }
         }
     }
 
@@ -392,138 +108,304 @@ class Storage {
     ~Storage() = default;
 
     /**
+     * @brief 获取对象池的总容量
+     *
+     * @return 当前所有 buffer 的槽位总数（buffer 数量 × 每个 buffer 的容量）
+     *
+     * @note 返回值为瞬时快照，多线程环境下可能在返回后立即变化
+     */
+    std::uint64_t capacity() const {
+        return buffer_count_.load(std::memory_order_relaxed) * BufferCapacity;
+    }
+
+    /**
      * @brief 分配一个槽位并初始化
      *
-     * @tparam Func 可调用对象类型，签名为 void(T&)
-     * @param writer 初始化回调，在持有锁的情况下调用
-     * @return 成功返回句柄，失败返回 std::nullopt
+     * @param initializer 初始化函数，签名为 void(T&)，在持有槽位独占锁的情况下调用
+     * @return 成功返回槽位句柄（内存地址），失败返回 0
      *
-     * @note 如果所有 buffer 满，会自动创建新 buffer 并扩充句柄队列
-     * @note 如果 writer 抛出异常，分配会回滚，句柄重新入队
+     * @note 分配流程：
+     *       1. 从空闲队列获取槽位句柄
+     *       2. 若队列为空，则扩容（创建新 buffer 并入队所有新槽位）
+     *       3. 通过 get_parent_buffer() 查找槽位所属的 StaticBuffer
+     *       4. 计算槽位在 buffer 内的索引，加锁后初始化并标记为已占用
+     *
      * @note 线程安全，扩容时使用独占锁保护 buffer 列表
+     * @throws std::runtime_error 若无法找到槽位所属的 buffer（理论上不应发生）
      */
-    template <typename Func>
-    std::optional<Handle> allocate(Func&& writer) {
-        Handle handle;
-        if (!free_handles_.dequeue(handle)) {
-            // 没有空闲句柄，需要扩容
-            expand_buffers();
+    [[nodiscard]]
+    Handle allocate(const std::function<void(T&)>& initializer) {
+        Handle id;
+        if (!free_slots_.dequeue(id)) {
+            // 扩容
+            std::unique_lock lock(list_mutex_);
+            buffers_.emplace_back();
+            for (std::size_t j = 0; j < BufferCapacity; ++j) {
+                free_slots_.enqueue(reinterpret_cast<Handle>(&(buffers_.back().buffer[j])));
+            }
+            buffer_count_.fetch_add(1, std::memory_order_relaxed);
+            lock.unlock();
 
-            if (!free_handles_.dequeue(handle)) {
-                return std::nullopt;  // 扩容失败或竞争失败
+            // 再次尝试分配
+            if (!free_slots_.dequeue(id)) {
+                return 0;  // 分配失败
             }
         }
 
-        // 使用句柄中指定的索引分配槽位
-        if (!handle.buffer_it->allocate_at(handle.index, std::forward<Func>(writer))) {
-            // 分配失败（槽位已被占用，理论上不应发生），回收句柄
-            free_handles_.enqueue(handle);
-            return std::nullopt;
+        // 初始化槽位
+        T* ptr = reinterpret_cast<T*>(id);
+        StaticBuffer<T, BufferCapacity>* parent_buffer = get_parent_buffer(id);
+
+        if (parent_buffer) {
+            std::size_t index = (id - reinterpret_cast<Handle>(&(parent_buffer->buffer[0]))) / sizeof(T);
+            {
+                std::unique_lock slot_lock(parent_buffer->mutexes[index]);
+                *ptr = T{};
+                initializer(*ptr);
+                parent_buffer->occupied[index].store(true, std::memory_order_release);
+            }
+        } else {
+            throw std::runtime_error("Parent buffer not found during allocation");
         }
 
-        return handle;
+        return id;
     }
 
     /**
-     * @brief 释放指定句柄对应的槽位
+     * @brief 释放指定槽位
      *
-     * @param handle 要释放的句柄
+     * @param id 槽位句柄（由 allocate() 返回）
      *
-     * @note 线程安全，独占锁标记空闲 + 无锁回收句柄
-     * @note 释放后句柄会重新入队，可被后续 allocate 复用
+     * @note 释放流程：
+     *       1. 通过 get_parent_buffer() 查找槽位所属的 StaticBuffer
+     *       2. 计算槽位在 buffer 内的索引
+     *       3. 加独占锁后标记槽位为未占用
+     *       4. 将句柄重新加入空闲队列以供复用
+     *
+     * @note 线程安全，使用独占锁保护槽位状态
+     * @throws std::runtime_error 若无法找到槽位所属的 buffer（可能是无效句柄）
      */
-    void deallocate(const Handle& handle) {
-        handle.buffer_it->deallocate(handle.index);
-        free_handles_.enqueue(handle);
+    void deallocate(Handle id) {
+        T* ptr = reinterpret_cast<T*>(id);
+        StaticBuffer<T, BufferCapacity>* parent_buffer = get_parent_buffer(id);
+
+        if (parent_buffer) {
+            std::size_t index = (id - reinterpret_cast<std::uint64_t>(&(parent_buffer->buffer[0]))) / sizeof(T);
+            {
+                std::unique_lock slot_lock(parent_buffer->mutexes[index]);
+                parent_buffer->occupied[index].store(false, std::memory_order_release);
+            }
+            free_slots_.enqueue(id);
+        } else {
+            throw std::runtime_error("Parent buffer not found during deallocation");
+        }
     }
 
     /**
-     * @brief 只读访问指定句柄对应的槽位
+     * @brief 只读访问指定槽位
      *
-     * @tparam Func 可调用对象类型，签名为 void(const T&)
-     * @param handle 槽位句柄
-     * @param reader 读取回调
-     * @return 成功访问返回 true，槽位未占用返回 false
+     * @param id 槽位句柄（由 allocate() 返回）
+     * @param reader 读取函数，签名为 void(const T&)，在持有槽位共享锁的情况下调用
+     * @return 槽位已占用且成功读取返回 true，槽位未占用返回 false
+     *
+     * @note 访问流程：
+     *       1. 通过 get_parent_buffer() 查找槽位所属的 StaticBuffer
+     *       2. 计算槽位在 buffer 内的索引
+     *       3. 加共享锁后检查占用标志，若已占用则调用 reader
      *
      * @note 线程安全，使用共享锁允许多个读者并发访问
-     * @note 如果 reader 抛出异常，异常会透传给调用者
+     * @throws std::runtime_error 若无法找到槽位所属的 buffer（可能是无效句柄）
      */
-    template <typename Func>
-    bool read(const Handle& handle, Func&& reader) const {
-        return handle.buffer_it->read(handle.index, std::forward<Func>(reader));
+    [[nodiscard]]
+    bool read(Handle id, const std::function<void(const T&)>& reader) {
+        T* ptr = reinterpret_cast<T*>(id);
+        StaticBuffer<T, BufferCapacity>* parent_buffer = get_parent_buffer(id);
+
+        if (parent_buffer) {
+            std::size_t index = (id - reinterpret_cast<Handle>(&(parent_buffer->buffer[0]))) / sizeof(T);
+            std::shared_lock slot_lock(parent_buffer->mutexes[index]);
+            if (parent_buffer->occupied[index].load(std::memory_order_acquire)) {
+                reader(*ptr);
+                return true;
+            } else {
+                return false;  // 槽位未被占用
+            }
+        } else {
+            throw std::runtime_error("Parent buffer not found during read");
+        }
     }
 
     /**
-     * @brief 可写访问指定句柄对应的槽位
+     * @brief 可写访问指定槽位
      *
-     * @tparam Func 可调用对象类型，签名为 void(T&)
-     * @param handle 槽位句柄
-     * @param writer 写入回调
-     * @return 成功访问返回 true，槽位未占用返回 false
+     * @param id 槽位句柄（由 allocate() 返回）
+     * @param writer 写入函数，签名为 void(T&)，在持有槽位独占锁的情况下调用
+     * @return 槽位已占用且成功写入返回 true，槽位未占用返回 false
+     *
+     * @note 访问流程：
+     *       1. 通过 get_parent_buffer() 查找槽位所属的 StaticBuffer
+     *       2. 计算槽位在 buffer 内的索引
+     *       3. 加独占锁后检查占用标志，若已占用则调用 writer
      *
      * @note 线程安全，使用独占锁确保独占写入
-     * @note 如果 writer 抛出异常，异常会透传给调用者
+     * @throws std::runtime_error 若无法找到槽位所属的 buffer（可能是无效句柄）
      */
-    template <typename Func>
-    bool write(const Handle& handle, Func&& writer) {
-        return handle.buffer_it->write(handle.index, std::forward<Func>(writer));
+    [[nodiscard]]
+    bool write(Handle id, const std::function<void(T&)>& writer) {
+        T* ptr = reinterpret_cast<T*>(id);
+        StaticBuffer<T, BufferCapacity>* parent_buffer = get_parent_buffer(id);
+
+        if (parent_buffer) {
+            std::size_t index = (id - reinterpret_cast<Handle>(&(parent_buffer->buffer[0]))) / sizeof(T);
+            std::unique_lock slot_lock(parent_buffer->mutexes[index]);
+            if (parent_buffer->occupied[index].load(std::memory_order_acquire)) {
+                writer(*ptr);
+                return true;
+            } else {
+                return false;  // 槽位未被占用
+            }
+        } else {
+            throw std::runtime_error("Parent buffer not found during write");
+        }
     }
 
     /**
      * @brief 只读遍历所有已占用槽位
      *
-     * @tparam Func 可调用对象类型，签名为 void(const T&)
-     * @param reader 读取回调，对每个已占用槽位调用一次
+     * @param reader 读取函数，签名为 void(const T&)，对每个已占用槽位调用一次
      *
-     * @note 线程安全，遍历所有 buffer 的所有槽位
-     * @note 如果 reader 抛出异常，该槽位的异常会被静默吞掉，继续遍历其他槽位
+     * @note 遍历流程：
+     *       1. 加 buffer 列表共享锁，遍历所有 buffer 的所有槽位
+     *       2. 对每个已占用槽位尝试 try_lock_shared，成功则立即调用 reader
+     *       3. 锁定失败的槽位记录到跳过队列，稍后重试
+     *       4. 释放列表锁后，循环处理跳过队列中的槽位，直到全部处理完毕
+     *
+     * @note 线程安全，使用 try_lock 避免死锁，确保最终所有槽位都被访问
+     * @note 遍历期间新分配的槽位可能被观察到，已释放的槽位会被跳过
      */
-    template <typename Func>
-    void for_each_read(Func&& reader) const {
-        std::shared_lock<std::shared_mutex> lock(list_mutex_);
+    void for_each_read(const std::function<void(const T&)>& reader) {
+        std::shared_lock list_lock(list_mutex_);
+        std::queue<Handle> skipped_elements;
+        std::queue<Handle> skipped_locks;
         for (auto& buffer : buffers_) {
-            buffer.for_each_read(std::forward<Func>(reader));
+            for (std::size_t i = 0; i < BufferCapacity; ++i) {
+                if (buffer.occupied[i].load(std::memory_order_acquire)) {
+                    if (buffer.mutexes[i].try_lock_shared()) {
+                        reader(buffer.buffer[i]);
+                        buffer.mutexes[i].unlock_shared();
+                    } else {
+                        skipped_elements.push(reinterpret_cast<Handle>(&(buffer.buffer[i])));
+                        skipped_locks.push(reinterpret_cast<Handle>(&(buffer.mutexes[i])));
+                    }
+                }
+            }
+        }
+
+        list_lock.unlock();
+        // 处理跳过的槽位
+        while (!skipped_elements.empty()) {
+            Handle elem_id = skipped_elements.front();
+            Handle lock_id = skipped_locks.front();
+            skipped_elements.pop();
+            skipped_locks.pop();
+
+            T* ptr = reinterpret_cast<T*>(elem_id);
+            std::shared_mutex* mutex_ptr = reinterpret_cast<std::shared_mutex*>(lock_id);
+
+            if (mutex_ptr->try_lock_shared()) {
+                reader(*ptr);
+                mutex_ptr->unlock_shared();
+            } else {
+                skipped_elements.push(elem_id);
+                skipped_locks.push(lock_id);
+            }
         }
     }
 
     /**
      * @brief 可写遍历所有已占用槽位
      *
-     * @tparam Func 可调用对象类型，签名为 void(T&)
-     * @param writer 写入回调，对每个已占用槽位调用一次
+     * @param writer 写入函数，签名为 void(T&)，对每个已占用槽位调用一次
      *
-     * @note 线程安全，遍历所有 buffer 的所有槽位
-     * @note 如果 writer 抛出异常，该槽位的异常会被静默吞掉，继续遍历其他槽位
+     * @note 遍历流程：
+     *       1. 加 buffer 列表共享锁，遍历所有 buffer 的所有槽位
+     *       2. 对每个已占用槽位尝试 try_lock，成功则立即调用 writer
+     *       3. 锁定失败的槽位记录到跳过队列，稍后重试
+     *       4. 释放列表锁后，循环处理跳过队列中的槽位，直到全部处理完毕
+     *
+     * @note 线程安全，使用 try_lock 避免死锁，确保最终所有槽位都被访问
+     * @note 遍历期间新分配的槽位可能被观察到，已释放的槽位会被跳过
      */
-    template <typename Func>
-    void for_each_write(Func&& writer) {
-        std::shared_lock<std::shared_mutex> lock(list_mutex_);
+    void for_each_write(const std::function<void(T&)>& writer) {
+        std::shared_lock list_lock(list_mutex_);
+        std::queue<Handle> skipped_elements;
+        std::queue<Handle> skipped_locks;
         for (auto& buffer : buffers_) {
-            buffer.for_each_write(std::forward<Func>(writer));
+            for (std::size_t i = 0; i < BufferCapacity; ++i) {
+                if (buffer.occupied[i].load(std::memory_order_acquire)) {
+                    if (buffer.mutexes[i].try_lock()) {
+                        writer(buffer.buffer[i]);
+                        buffer.mutexes[i].unlock();
+                    } else {
+                        skipped_elements.push(reinterpret_cast<Handle>(&(buffer.buffer[i])));
+                        skipped_locks.push(reinterpret_cast<Handle>(&(buffer.mutexes[i])));
+                    }
+                }
+            }
+        }
+
+        list_lock.unlock();
+        // 处理跳过的槽位
+        while (!skipped_elements.empty()) {
+            Handle elem_id = skipped_elements.front();
+            Handle lock_id = skipped_locks.front();
+            skipped_elements.pop();
+            skipped_locks.pop();
+
+            T* ptr = reinterpret_cast<T*>(elem_id);
+            std::shared_mutex* mutex_ptr = reinterpret_cast<std::shared_mutex*>(lock_id);
+
+            if (mutex_ptr->try_lock()) {
+                writer(*ptr);
+                mutex_ptr->unlock();
+            } else {
+                skipped_elements.push(elem_id);
+                skipped_locks.push(lock_id);
+            }
         }
     }
 
    private:
     /**
-     * @brief 扩容：创建新 buffer 并生成对应的句柄
+     * @brief 根据槽位句柄查找其所属的 StaticBuffer
      *
-     * @note 使用独占锁保护 buffer 列表
+     * @param id 槽位句柄（内存地址）
+     * @return 找到则返回 StaticBuffer 指针，否则返回 nullptr
+     *
+     * @note 查找逻辑：
+     *       1. 加 buffer 列表共享锁
+     *       2. 遍历所有 buffer，检查 id 是否在该 buffer 的地址范围内
+     *       3. 地址范围：[&buffer[0], &buffer[BufferCapacity-1]]
+     *
+     * @note 线程安全，使用共享锁保护 buffer 列表
      */
-    void expand_buffers() {
-        std::unique_lock<std::shared_mutex> lock(list_mutex_);
-
-        buffers_.emplace_back();
-        auto new_buffer_it = std::prev(buffers_.end());
-
-        // 为新 buffer 的所有槽位生成句柄并入队
-        for (std::size_t i = 0; i < BufferCapacity; ++i) {
-            free_handles_.enqueue(Handle{new_buffer_it, i});
+    [[nodiscard]]
+    StaticBuffer<T, BufferCapacity>* get_parent_buffer(Handle id) {
+        std::shared_lock lock(list_mutex_);
+        for (auto& buffer : buffers_) {
+            if (id >= reinterpret_cast<Handle>(&(buffer.buffer[0])) &&
+                id <= reinterpret_cast<Handle>(&(buffer.buffer[BufferCapacity - 1]))) {
+                return &buffer;
+            }
         }
+        return nullptr;
     }
 
-    mutable std::shared_mutex list_mutex_;                ///< 保护 buffers_ 列表的锁
-    std::list<StaticBuffer<T, BufferCapacity>> buffers_;  ///< 底层 buffer 列表
-    LockFreeQueue<Handle> free_handles_;                  ///< 空闲句柄的无锁队列
+   private:
+    std::shared_mutex list_mutex_;                           ///< 保护 buffers_ 列表的锁
+    LockFreeQueue<Handle> free_slots_;                       ///< 空闲槽位的无锁队列
+    std::list<StaticBuffer<T, BufferCapacity>> buffers_;     ///< 底层 buffer 列表
+    std::atomic<std::size_t> buffer_count_{InitialBuffers};  ///< 当前 buffer 数量
 };
 
 }  // namespace Corona::Kernel::Utils
