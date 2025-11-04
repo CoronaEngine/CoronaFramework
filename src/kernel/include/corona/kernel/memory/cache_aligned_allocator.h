@@ -18,8 +18,7 @@ constexpr std::size_t CacheLineSize = 64;
 [[nodiscard]] bool is_aligned(void* ptr, std::size_t alignment);
 [[nodiscard]] bool is_power_of_two(std::size_t value);
 
-inline void* aligned_malloc(std::size_t size, std::size_t alignment) 
-{
+inline void* aligned_malloc(std::size_t size, std::size_t alignment) {
     if (size % alignment != 0) {
         size = ((size + alignment - 1) / alignment) * alignment;
     }

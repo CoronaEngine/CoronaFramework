@@ -27,8 +27,8 @@ namespace Corona::Kernel::Utils {
  *
  * @note 线程安全性：
  * - allocate/deallocate：多线程安全
- * - access/access_mut：多线程安全，读写使用共享锁/独占锁
- * - for_each/for_each_const：多线程安全，采用 try-lock 避免阻塞
+ * - read/write：多线程安全，读写使用共享锁/独占锁
+ * - for_each_read/for_each_write：多线程安全，采用 try-lock 避免阻塞
  */
 template <typename T, std::size_t Capacity>
 class StaticBuffer {
@@ -148,7 +148,7 @@ class StaticBuffer {
      * @note 如果 reader 抛出异常，异常会透传给调用者，但锁会被正确释放
      */
     template <typename Func>
-    bool access(std::size_t index, Func&& reader) const {
+    bool read(std::size_t index, Func&& reader) const {
         if (index >= Capacity) {
             return false;
         }
@@ -180,7 +180,7 @@ class StaticBuffer {
      * @note 如果 writer 抛出异常，异常会透传给调用者，但锁会被正确释放；数据可能处于部分修改状态
      */
     template <typename Func>
-    bool access_mut(std::size_t index, Func&& writer) {
+    bool write(std::size_t index, Func&& writer) {
         if (index >= Capacity) {
             return false;
         }
@@ -212,7 +212,7 @@ class StaticBuffer {
      * @note 如果 reader 抛出异常，该槽位的异常会被静默吞掉，继续遍历其他槽位
      */
     template <typename Func>
-    void for_each_const(Func&& reader) const {
+    void for_each_read(Func&& reader) const {
         std::vector<std::size_t> skipped;
         skipped.reserve(Capacity);
 
@@ -263,7 +263,7 @@ class StaticBuffer {
      * @note 如果 writer 抛出异常，该槽位的异常会被静默吞掉，继续遍历其他槽位；数据可能处于部分修改状态
      */
     template <typename Func>
-    void for_each(Func&& writer) {
+    void for_each_write(Func&& writer) {
         std::vector<std::size_t> skipped;
         skipped.reserve(Capacity);
 
@@ -353,7 +353,7 @@ class StaticBuffer {
  * @note 线程安全性：
  * - allocate：多线程安全，扩容时使用独占锁
  * - deallocate：多线程安全，无锁回收句柄
- * - access/access_mut：多线程安全，通过 StaticBuffer 实现
+ * - read/write：多线程安全，通过 StaticBuffer 实现
  */
 template <typename T, std::size_t BufferCapacity = (1 << 7)>
 class Storage {
@@ -449,8 +449,8 @@ class Storage {
      * @note 如果 reader 抛出异常，异常会透传给调用者
      */
     template <typename Func>
-    bool access(const Handle& handle, Func&& reader) const {
-        return handle.buffer_it->access(handle.index, std::forward<Func>(reader));
+    bool read(const Handle& handle, Func&& reader) const {
+        return handle.buffer_it->read(handle.index, std::forward<Func>(reader));
     }
 
     /**
@@ -465,8 +465,8 @@ class Storage {
      * @note 如果 writer 抛出异常，异常会透传给调用者
      */
     template <typename Func>
-    bool access_mut(const Handle& handle, Func&& writer) {
-        return handle.buffer_it->access_mut(handle.index, std::forward<Func>(writer));
+    bool write(const Handle& handle, Func&& writer) {
+        return handle.buffer_it->write(handle.index, std::forward<Func>(writer));
     }
 
     /**
@@ -479,10 +479,10 @@ class Storage {
      * @note 如果 reader 抛出异常，该槽位的异常会被静默吞掉，继续遍历其他槽位
      */
     template <typename Func>
-    void for_each_const(Func&& reader) const {
+    void for_each_read(Func&& reader) const {
         std::shared_lock<std::shared_mutex> lock(list_mutex_);
         for (auto& buffer : buffers_) {
-            buffer.for_each_const(std::forward<Func>(reader));
+            buffer.for_each_read(std::forward<Func>(reader));
         }
     }
 
@@ -496,10 +496,10 @@ class Storage {
      * @note 如果 writer 抛出异常，该槽位的异常会被静默吞掉，继续遍历其他槽位
      */
     template <typename Func>
-    void for_each(Func&& writer) {
+    void for_each_write(Func&& writer) {
         std::shared_lock<std::shared_mutex> lock(list_mutex_);
         for (auto& buffer : buffers_) {
-            buffer.for_each(std::forward<Func>(writer));
+            buffer.for_each_write(std::forward<Func>(writer));
         }
     }
 

@@ -22,17 +22,17 @@ TEST(StaticBufferTests, AllocateAccessDeallocate) {
 
     for (int i = 0; i < 8; ++i) {
         const std::size_t idx = indices[i];
-        ASSERT_TRUE(buffer.access(idx, [i](const int& value) {
+        ASSERT_TRUE(buffer.read(idx, [i](const int& value) {
             ASSERT_EQ(value, i * 10);
         }));
-        ASSERT_TRUE(buffer.access_mut(idx, [i](int& value) {
+        ASSERT_TRUE(buffer.write(idx, [i](int& value) {
             value = i * 10 + 1;
         }));
     }
 
     for (int i = 0; i < 8; ++i) {
         const std::size_t idx = indices[i];
-        ASSERT_TRUE(buffer.access(idx, [i](const int& value) {
+        ASSERT_TRUE(buffer.read(idx, [i](const int& value) {
             ASSERT_EQ(value, i * 10 + 1);
         }));
         buffer.deallocate(idx);
@@ -40,7 +40,7 @@ TEST(StaticBufferTests, AllocateAccessDeallocate) {
 
     auto recycled = buffer.allocate([](int& slot) { slot = 42; });
     ASSERT_TRUE(recycled.has_value());
-    ASSERT_TRUE(buffer.access(*recycled, [](const int& value) { ASSERT_EQ(value, 42); }));
+    ASSERT_TRUE(buffer.read(*recycled, [](const int& value) { ASSERT_EQ(value, 42); }));
 }
 
 TEST(StaticBufferTests, MultiThreadConcurrentAccess) {
@@ -70,7 +70,7 @@ TEST(StaticBufferTests, MultiThreadConcurrentAccess) {
 
             while (!local_indices.empty()) {
                 const std::size_t idx = local_indices.back();
-                bool read_ok = buffer.access(idx, [&](const int& value) {
+                bool read_ok = buffer.read(idx, [&](const int& value) {
                     ASSERT_GE(value, 0);
                 });
                 if (read_ok) {
@@ -91,7 +91,7 @@ TEST(StaticBufferTests, MultiThreadConcurrentAccess) {
 
         while (!stop.load(std::memory_order_acquire)) {
             for (std::size_t idx = 0; idx < capacity; ++idx) {
-                buffer.access(idx, [&](const int& value) {
+                buffer.read(idx, [&](const int& value) {
                     (void)value;
                     observed.fetch_add(1, std::memory_order_relaxed);
                 });
@@ -136,7 +136,7 @@ TEST(StaticBufferTests, ForEachTraversal) {
 
     int sum = 0;
     int visits = 0;
-    buffer.for_each_const([&](const int& value) {
+    buffer.for_each_read([&](const int& value) {
         sum += value;
         ++visits;
     });
@@ -144,12 +144,12 @@ TEST(StaticBufferTests, ForEachTraversal) {
     ASSERT_EQ(visits, static_cast<int>(indices.size()));
     ASSERT_EQ(sum, expected_sum);
 
-    buffer.for_each([](int& value) { value *= 2; });
+    buffer.for_each_write([](int& value) { value *= 2; });
 
     for (std::size_t i = 0; i < indices.size(); ++i) {
         const std::size_t idx = indices[i];
         const int expected = initial_values[i] * 2;
-        ASSERT_TRUE(buffer.access(idx, [expected](const int& value) { ASSERT_EQ(value, expected); }));
+        ASSERT_TRUE(buffer.read(idx, [expected](const int& value) { ASSERT_EQ(value, expected); }));
     }
 
     std::atomic<bool> lock_ready{false};
@@ -157,7 +157,7 @@ TEST(StaticBufferTests, ForEachTraversal) {
 
     const std::size_t guarded_index = indices.front();
     std::thread locker([&]() {
-        buffer.access_mut(guarded_index, [&](int& value) {
+        buffer.write(guarded_index, [&](int& value) {
             lock_ready.store(true, std::memory_order_release);
             while (!release_lock.load(std::memory_order_acquire)) {
                 std::this_thread::yield();
@@ -176,7 +176,7 @@ TEST(StaticBufferTests, ForEachTraversal) {
     });
 
     int traversal_count = 0;
-    buffer.for_each_const([&](const int& value) {
+    buffer.for_each_read([&](const int& value) {
         (void)value;
         ++traversal_count;
     });
@@ -186,7 +186,7 @@ TEST(StaticBufferTests, ForEachTraversal) {
     locker.join();
 
     ASSERT_EQ(traversal_count, static_cast<int>(indices.size()));
-    ASSERT_TRUE(buffer.access(guarded_index, [&](const int& value) {
+    ASSERT_TRUE(buffer.read(guarded_index, [&](const int& value) {
         ASSERT_EQ(value, initial_values.front() * 2 + 5);
     }));
 }
@@ -221,7 +221,7 @@ TEST(StaticBufferTests, MixedConcurrentOperations) {
 
             if (!owned.empty()) {
                 const std::size_t idx = owned.back();
-                bool wrote = buffer.access_mut(idx, [&](int& slot) {
+                bool wrote = buffer.write(idx, [&](int& slot) {
                     slot += 1;
                     writes.fetch_add(1, std::memory_order_relaxed);
                 });
@@ -246,7 +246,7 @@ TEST(StaticBufferTests, MixedConcurrentOperations) {
 
         while (!stop.load(std::memory_order_relaxed)) {
             for (std::size_t idx = 0; idx < capacity; ++idx) {
-                buffer.access(idx, [&](const int& value) {
+                buffer.read(idx, [&](const int& value) {
                     ASSERT_GE(value, 1);
                     reads.fetch_add(1, std::memory_order_relaxed);
                 });
@@ -303,7 +303,7 @@ TEST(StaticBufferTests, RapidAllocDeallocCycle) {
                     continue;
                 }
 
-                bool read_ok = buffer.access(*index, [expected_value, &failure](const int& value) {
+                bool read_ok = buffer.read(*index, [expected_value, &failure](const int& value) {
                     if (value != expected_value) {
                         failure.store(true, std::memory_order_release);
                     }
@@ -313,7 +313,7 @@ TEST(StaticBufferTests, RapidAllocDeallocCycle) {
                     failure.store(true, std::memory_order_release);
                 }
 
-                bool write_ok = buffer.access_mut(*index, [](int& value) { value += 1; });
+                bool write_ok = buffer.write(*index, [](int& value) { value += 1; });
 
                 if (!write_ok) {
                     failure.store(true, std::memory_order_release);
@@ -432,7 +432,7 @@ TEST(StaticBufferTests, ContentionOnSameSlot) {
 
             while (!stop.load(std::memory_order_relaxed)) {
                 for (std::size_t idx : indices) {
-                    buffer.access_mut(idx, [](std::atomic<int>& value) {
+                    buffer.write(idx, [](std::atomic<int>& value) {
                         value.fetch_add(1, std::memory_order_relaxed);
                     });
                 }
@@ -448,7 +448,7 @@ TEST(StaticBufferTests, ContentionOnSameSlot) {
 
             while (!stop.load(std::memory_order_relaxed)) {
                 for (std::size_t idx : indices) {
-                    buffer.access(idx, [](const std::atomic<int>& value) {
+                    buffer.read(idx, [](const std::atomic<int>& value) {
                         const int val = value.load(std::memory_order_relaxed);
                         ASSERT_GE(val, 0);
                     });
@@ -467,7 +467,7 @@ TEST(StaticBufferTests, ContentionOnSameSlot) {
 
     int total = 0;
     for (std::size_t idx : indices) {
-        buffer.access(idx, [&total](const std::atomic<int>& value) {
+        buffer.read(idx, [&total](const std::atomic<int>& value) {
             total += value.load(std::memory_order_acquire);
         });
         buffer.deallocate(idx);
@@ -507,7 +507,7 @@ TEST(StaticBufferTests, MemoryOrderingValidation) {
                 if (index.has_value()) {
                     owned.push_back(*index);
 
-                    buffer.access_mut(*index, [seq](std::pair<int, int>& slot) {
+                    buffer.write(*index, [seq](std::pair<int, int>& slot) {
                         slot.first = seq + 1;
                         slot.second = seq + 1;
                     });
@@ -536,7 +536,7 @@ TEST(StaticBufferTests, MemoryOrderingValidation) {
 
             while (!stop.load(std::memory_order_relaxed)) {
                 for (std::size_t idx = 0; idx < capacity; ++idx) {
-                    buffer.access(idx, [&](const std::pair<int, int>& value) {
+                    buffer.read(idx, [&](const std::pair<int, int>& value) {
                         if (value.first != value.second) {
                             ordering_violation.store(true, std::memory_order_release);
                         }

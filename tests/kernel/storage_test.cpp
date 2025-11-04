@@ -17,19 +17,19 @@ TEST(StorageTests, BasicAllocateAndAccess) {
     ASSERT_TRUE(handle.has_value());
 
     // 只读访问
-    bool read_success = storage.access(*handle, [](const int& value) {
+    bool read_success = storage.read(*handle, [](const int& value) {
         ASSERT_EQ(value, 42);
     });
     ASSERT_TRUE(read_success);
 
     // 可写访问
-    bool write_success = storage.access_mut(*handle, [](int& value) {
+    bool write_success = storage.write(*handle, [](int& value) {
         value = 100;
     });
     ASSERT_TRUE(write_success);
 
     // 验证修改
-    storage.access(*handle, [](const int& value) {
+    storage.read(*handle, [](const int& value) {
         ASSERT_EQ(value, 100);
     });
 
@@ -37,7 +37,7 @@ TEST(StorageTests, BasicAllocateAndAccess) {
     storage.deallocate(*handle);
 
     // 验证释放后无法访问
-    bool access_after_free = storage.access(*handle, [](const int&) {});
+    bool access_after_free = storage.read(*handle, [](const int&) {});
     ASSERT_FALSE(access_after_free);
 }
 
@@ -54,7 +54,7 @@ TEST(StorageTests, MultipleAllocations) {
 
     // 验证所有值
     for (int i = 0; i < 8; ++i) {
-        storage.access(handles[i], [i](const int& value) {
+        storage.read(handles[i], [i](const int& value) {
             ASSERT_EQ(value, i * 10);
         });
     }
@@ -67,7 +67,7 @@ TEST(StorageTests, MultipleAllocations) {
     // 验证可以重新分配
     auto recycled = storage.allocate([](int& value) { value = 999; });
     ASSERT_TRUE(recycled.has_value());
-    storage.access(*recycled, [](const int& value) {
+    storage.read(*recycled, [](const int& value) {
         ASSERT_EQ(value, 999);
     });
 }
@@ -87,7 +87,7 @@ TEST(StorageTests, AutoExpansion) {
 
     // 验证所有值
     for (std::size_t i = 0; i < total_allocations; ++i) {
-        storage.access(handles[i], [i](const int& value) {
+        storage.read(handles[i], [i](const int& value) {
             ASSERT_EQ(value, static_cast<int>(i));
         });
     }
@@ -112,7 +112,7 @@ TEST(StorageTests, ForEachTraversal) {
     // 只读遍历并统计
     int sum = 0;
     int count = 0;
-    storage.for_each_const([&](const int& value) {
+    storage.for_each_read([&](const int& value) {
         sum += value;
         ++count;
     });
@@ -121,11 +121,11 @@ TEST(StorageTests, ForEachTraversal) {
     ASSERT_EQ(sum, 55);  // 1+2+...+10 = 55
 
     // 可写遍历，所有值乘以2
-    storage.for_each([](int& value) { value *= 2; });
+    storage.for_each_write([](int& value) { value *= 2; });
 
     // 验证修改
     sum = 0;
-    storage.for_each_const([&](const int& value) {
+    storage.for_each_read([&](const int& value) {
         sum += value;
     });
     ASSERT_EQ(sum, 110);  // 2*(1+2+...+10) = 110
@@ -158,7 +158,7 @@ TEST(StorageTests, ConcurrentAllocateAndDeallocate) {
                 allocations.fetch_add(1, std::memory_order_relaxed);
 
                 // 验证读取
-                bool read_ok = storage.access(*handle, [iteration](const int& value) {
+                bool read_ok = storage.read(*handle, [iteration](const int& value) {
                     ASSERT_EQ(value, iteration);
                 });
                 ASSERT_TRUE(read_ok);
@@ -216,7 +216,7 @@ TEST(StorageTests, MixedConcurrentOperations) {
 
             if (!owned.empty() && owned.size() > capacity / 4) {
                 const auto& handle = owned.back();
-                bool wrote = storage.access_mut(handle, [&](int& value) {
+                bool wrote = storage.write(handle, [&](int& value) {
                     value += 1;
                     writes.fetch_add(1, std::memory_order_relaxed);
                 });
@@ -243,7 +243,7 @@ TEST(StorageTests, MixedConcurrentOperations) {
         }
 
         while (!stop.load(std::memory_order_relaxed)) {
-            storage.for_each_const([&](const int& value) {
+            storage.for_each_read([&](const int& value) {
                 ASSERT_GE(value, 1);
                 reads.fetch_add(1, std::memory_order_relaxed);
             });
@@ -286,18 +286,18 @@ TEST(StorageTests, ExceptionSafety) {
     // 验证可以继续正常分配
     auto handle = storage.allocate([](int& value) { value = 42; });
     ASSERT_TRUE(handle.has_value());
-    storage.access(*handle, [](const int& value) {
+    storage.read(*handle, [](const int& value) {
         ASSERT_EQ(value, 42);
     });
     storage.deallocate(*handle);
 
-    // access_mut 时抛异常
+    // write 时抛异常
     handle = storage.allocate([](int& value) { value = 100; });
     ASSERT_TRUE(handle.has_value());
 
     exception_caught = false;
     try {
-        storage.access_mut(*handle, [](int&) {
+        storage.write(*handle, [](int&) {
             throw std::runtime_error("Access exception");
         });
     } catch (const std::runtime_error&) {
@@ -306,7 +306,7 @@ TEST(StorageTests, ExceptionSafety) {
     ASSERT_TRUE(exception_caught);
 
     // 验证槽位仍可访问（数据可能处于部分修改状态）
-    bool still_accessible = storage.access(*handle, [](const int&) {});
+    bool still_accessible = storage.read(*handle, [](const int&) {});
     ASSERT_TRUE(still_accessible);
 
     storage.deallocate(*handle);
@@ -413,7 +413,7 @@ TEST(StorageTests, ComprehensiveConcurrentOperations) {
 
             // 读取这些句柄
             for (const auto& handle : cached_handles) {
-                bool read_ok = storage.access(handle, [&](const int& value) {
+                bool read_ok = storage.read(handle, [&](const int& value) {
                     (void)value;
                     reads.fetch_add(1, std::memory_order_relaxed);
                 });
@@ -449,7 +449,7 @@ TEST(StorageTests, ComprehensiveConcurrentOperations) {
 
             // 修改这些句柄
             for (const auto& handle : cached_handles) {
-                bool write_ok = storage.access_mut(handle, [&](int& value) {
+                bool write_ok = storage.write(handle, [&](int& value) {
                     value += 1;
                     writes.fetch_add(1, std::memory_order_relaxed);
                 });
@@ -474,12 +474,12 @@ TEST(StorageTests, ComprehensiveConcurrentOperations) {
 
         while (!stop.load(std::memory_order_relaxed)) {
             // 只读遍历
-            storage.for_each_const([&](const int& value) {
+            storage.for_each_read([&](const int& value) {
                 (void)value;
             });
 
             // 可写遍历
-            storage.for_each([&](int& value) {
+            storage.for_each_write([&](int& value) {
                 value = (value + 1) % 1000;
             });
 
