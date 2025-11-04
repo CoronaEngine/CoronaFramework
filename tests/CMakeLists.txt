@@ -17,217 +17,76 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 # Kernel Tests
 # ========================================
 
-# 线程安全测试
-add_executable(kernel_thread_safety_test
-    kernel/thread_safety_test.cpp
-)
+function(corona_add_test TARGET_NAME)
+    set(_test_common_header "${CMAKE_CURRENT_SOURCE_DIR}/test_framework.h")
+    add_executable(${TARGET_NAME} ${ARGN} ${_test_common_header})
+    target_link_libraries(${TARGET_NAME}
+        PRIVATE
+            corona_kernel
+            corona_pal
+    )
+    source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${ARGN} ${_test_common_header})
+endfunction()
 
-target_link_libraries(kernel_thread_safety_test
-    PRIVATE
-        corona_kernel
-        corona_pal
-)
+# 线程安全测试
+corona_add_test(kernel_thread_safety_test kernel/thread_safety_test.cpp)
 
 # 系统测试
-add_executable(kernel_system_test
-    kernel/system_test.cpp
-)
-
-target_link_libraries(kernel_system_test
-    PRIVATE
-        corona_kernel
-        corona_pal
-)
+corona_add_test(kernel_system_test kernel/system_test.cpp)
 
 # 性能监控测试
-add_executable(kernel_performance_test
-    kernel/performance_test.cpp
-)
-
-target_link_libraries(kernel_performance_test
-    PRIVATE
-        corona_kernel
-        corona_pal
-)
+corona_add_test(kernel_performance_test kernel/performance_test.cpp)
 
 # 事件流测试
-add_executable(kernel_event_stream_test
-    kernel/event_stream_test.cpp
-)
-
-target_link_libraries(kernel_event_stream_test
-    PRIVATE
-        corona_kernel
-        corona_pal
-)
+corona_add_test(kernel_event_stream_test kernel/event_stream_test.cpp)
 
 # EventBus 测试
-add_executable(kernel_event_bus_test
-    kernel/event_bus_test.cpp
-)
-
-target_link_libraries(kernel_event_bus_test
-    PRIVATE
-        corona_kernel
-        corona_pal
-)
+corona_add_test(kernel_event_bus_test kernel/event_bus_test.cpp)
 
 # Logger 测试
-add_executable(kernel_logger_test
-    kernel/logger_test.cpp
-)
-
-target_link_libraries(kernel_logger_test
-    PRIVATE
-        corona_kernel
-        corona_pal
-)
+corona_add_test(kernel_logger_test kernel/logger_test.cpp)
 
 # VFS 测试
-add_executable(kernel_vfs_test
-    kernel/vfs_test.cpp
-)
-
-target_link_libraries(kernel_vfs_test
-    PRIVATE
-        corona_kernel
-        corona_pal
-)
+corona_add_test(kernel_vfs_test kernel/vfs_test.cpp)
 
 # LockFreeQueue 测试
-add_executable(kernel_lockfree_queue_test
-    kernel/lockfree_queue_test.cpp
-)
-
-target_link_libraries(kernel_lockfree_queue_test
-    PRIVATE
-        corona_kernel
-        corona_pal
-)
+corona_add_test(kernel_lockfree_queue_test kernel/lockfree_queue_test.cpp)
 
 # 性能基准测试
-add_executable(kernel_benchmark_test
-    kernel/benchmark_test.cpp
-)
+corona_add_test(kernel_benchmark_test kernel/benchmark_test.cpp)
 
-target_link_libraries(kernel_benchmark_test
-    PRIVATE
-        corona_kernel
-        corona_pal
-)
-
-add_executable(kernel_static_buffer_test
-    kernel/static_buffer_test.cpp
-)
-
-target_link_libraries(kernel_static_buffer_test
-    PRIVATE
-        corona_kernel
-        corona_pal
-)
+corona_add_test(kernel_static_buffer_test kernel/static_buffer_test.cpp)
 
 # CacheAlignedAllocator 测试
-add_executable(kernel_cache_aligned_allocator_test
-    kernel/cache_aligned_allocator_test.cpp
-)
-
-target_link_libraries(kernel_cache_aligned_allocator_test
-    PRIVATE
-        corona_kernel
-        corona_pal
-)
+corona_add_test(kernel_cache_aligned_allocator_test kernel/cache_aligned_allocator_test.cpp)
 
 # Platform 测试
-add_executable(kernel_platform_test
-    kernel/platform_test.cpp
-)
-
-target_link_libraries(kernel_platform_test
-    PRIVATE
-        corona_kernel
-        corona_pal
-)
+corona_add_test(kernel_platform_test kernel/platform_test.cpp)
 
 # ========================================
 # Multi-threaded Stability Tests
 # ========================================
 
 # EventBus 多线程测试
-add_executable(kernel_eventbus_mt_test
-    kernel/eventbus_mt_test.cpp
-)
-
-target_link_libraries(kernel_eventbus_mt_test
-    PRIVATE
-        corona_kernel
-        corona_pal
-)
+corona_add_test(kernel_eventbus_mt_test kernel/eventbus_mt_test.cpp)
 
 # EventStream 多线程测试
-add_executable(kernel_eventstream_mt_test
-    kernel/eventstream_mt_test.cpp
-)
-
-target_link_libraries(kernel_eventstream_mt_test
-    PRIVATE
-        corona_kernel
-        corona_pal
-)
+corona_add_test(kernel_eventstream_mt_test kernel/eventstream_mt_test.cpp)
 
 # Logger 多线程测试
-add_executable(kernel_logger_mt_test
-    kernel/logger_mt_test.cpp
-)
-
-target_link_libraries(kernel_logger_mt_test
-    PRIVATE
-        corona_kernel
-        corona_pal
-)
+corona_add_test(kernel_logger_mt_test kernel/logger_mt_test.cpp)
 
 # VFS 多线程测试
-add_executable(kernel_vfs_mt_test
-    kernel/vfs_mt_test.cpp
-)
-
-target_link_libraries(kernel_vfs_mt_test
-    PRIVATE
-        corona_kernel
-        corona_pal
-)
+corona_add_test(kernel_vfs_mt_test kernel/vfs_mt_test.cpp)
 
 # PluginManager 多线程测试
-add_executable(kernel_pluginmanager_mt_test
-    kernel/pluginmanager_mt_test.cpp
-)
-
-target_link_libraries(kernel_pluginmanager_mt_test
-    PRIVATE
-        corona_kernel
-        corona_pal
-)
+corona_add_test(kernel_pluginmanager_mt_test kernel/pluginmanager_mt_test.cpp)
 
 # SystemManager 多线程测试
-add_executable(kernel_systemmanager_mt_test
-    kernel/systemmanager_mt_test.cpp
-)
-
-target_link_libraries(kernel_systemmanager_mt_test
-    PRIVATE
-        corona_kernel
-        corona_pal
-)
+corona_add_test(kernel_systemmanager_mt_test kernel/systemmanager_mt_test.cpp)
 
 # Storage 测试
-add_executable(kernel_storage_test
-    kernel/storage_test.cpp
-)
-
-target_link_libraries(kernel_storage_test
-    PRIVATE
-        corona_kernel
-        corona_pal
-)
+corona_add_test(kernel_storage_test kernel/storage_test.cpp)
 
 # ========================================
 # 启用测试

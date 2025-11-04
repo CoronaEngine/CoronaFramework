@@ -1,4 +1,4 @@
-add_library(corona_kernel STATIC
+set(CORONA_KERNEL_SOURCES
     src/core/logger.cpp
     src/event/event_bus.cpp
     src/event/event_stream.cpp
@@ -10,7 +10,20 @@ add_library(corona_kernel STATIC
     src/memory/cache_aligned_allocator.cpp
 )
 
+file(GLOB_RECURSE CORONA_KERNEL_HEADERS CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp"
+)
+
+add_library(corona_kernel STATIC ${CORONA_KERNEL_SOURCES})
+
 add_library(corona::kernel ALIAS corona_kernel)
+
+if(CORONA_KERNEL_HEADERS)
+    target_sources(corona_kernel PRIVATE ${CORONA_KERNEL_HEADERS})
+endif()
+
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${CORONA_KERNEL_SOURCES} ${CORONA_KERNEL_HEADERS})
 
 target_include_directories(corona_kernel PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

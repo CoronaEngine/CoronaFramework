@@ -1,35 +1,35 @@
+function(corona_add_example TARGET_NAME)
+	add_executable(${TARGET_NAME} ${ARGN})
+	target_link_libraries(${TARGET_NAME} PRIVATE corona::kernel corona::pal)
+	source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${ARGN})
+endfunction()
+
 # ========================================
 # 01 - EventBus Example
 # ========================================
-add_executable(01_event_bus 01_event_bus/main.cpp)
-target_link_libraries(01_event_bus PRIVATE corona::kernel corona::pal)
+corona_add_example(01_event_bus 01_event_bus/main.cpp)
 
 # ========================================
 # 02 - System Lifecycle Example
 # ========================================
-add_executable(02_system_lifecycle 02_system_lifecycle/main.cpp)
-target_link_libraries(02_system_lifecycle PRIVATE corona::kernel corona::pal)
+corona_add_example(02_system_lifecycle 02_system_lifecycle/main.cpp)
 
 # ========================================
 # 03 - EventStream Example
 # ========================================
-add_executable(03_event_stream 03_event_stream/main.cpp)
-target_link_libraries(03_event_stream PRIVATE corona::kernel corona::pal)
+corona_add_example(03_event_stream 03_event_stream/main.cpp)
 
 # ========================================
 # 04 - VFS Example
 # ========================================
-add_executable(04_vfs 04_vfs/main.cpp)
-target_link_libraries(04_vfs PRIVATE corona::kernel corona::pal)
+corona_add_example(04_vfs 04_vfs/main.cpp)
 
 # ========================================
 # 05 - Multithreading Example
 # ========================================
-add_executable(05_multithreading 05_multithreading/main.cpp)
-target_link_libraries(05_multithreading PRIVATE corona::kernel corona::pal)
+corona_add_example(05_multithreading 05_multithreading/main.cpp)
 
 # ========================================
 # 06 - Game Loop Example
 # ========================================
-add_executable(06_game_loop 06_game_loop/main.cpp)
-target_link_libraries(06_game_loop PRIVATE corona::kernel corona::pal)
+corona_add_example(06_game_loop 06_game_loop/main.cpp)
