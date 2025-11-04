@@ -4,17 +4,12 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <exception>
 #include <functional>
-#include <iostream>
 #include <list>
 #include <mutex>
-#include <optional>
 #include <queue>
 #include <shared_mutex>
 #include <stdexcept>
-#include <utility>
-#include <vector>
 
 #include "lock_free_queue.h"
 
