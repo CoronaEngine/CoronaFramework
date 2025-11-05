@@ -73,11 +73,6 @@ class SystemManager : public ISystemManager {
    public:
     SystemManager() : context_(std::make_unique<SystemContext>(this)) {}
 
-    ~SystemManager() override {
-        shutdown_all();
-        stop_all();
-    }
-
     void register_system(std::shared_ptr<ISystem> system) override {
         std::lock_guard<std::mutex> lock(mutex_);
 
