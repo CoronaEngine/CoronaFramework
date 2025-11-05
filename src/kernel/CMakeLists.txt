@@ -8,6 +8,7 @@ set(CORONA_KERNEL_SOURCES
     src/system/system_manager.cpp
     src/system/system_base.cpp
     src/memory/cache_aligned_allocator.cpp
+    src/utils/work_stealing_queue.cpp
 )
 
 file(GLOB_RECURSE CORONA_KERNEL_HEADERS CONFIGURE_DEPENDS
