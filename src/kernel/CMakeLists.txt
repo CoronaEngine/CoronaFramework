@@ -9,6 +9,8 @@ set(CORONA_KERNEL_SOURCES
     src/system/system_base.cpp
     src/memory/cache_aligned_allocator.cpp
     src/utils/work_stealing_queue.cpp
+    src/utils/task_scheduler.cpp
+    src/utils/task_group.cpp
 )
 
 file(GLOB_RECURSE CORONA_KERNEL_HEADERS CONFIGURE_DEPENDS
@@ -46,4 +48,3 @@ install(TARGETS corona_kernel
 install(DIRECTORY include/corona
     DESTINATION include
 )
-

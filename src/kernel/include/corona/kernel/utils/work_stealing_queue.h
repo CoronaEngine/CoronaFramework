@@ -8,7 +8,7 @@
 namespace Corona::Kernal::Utils {
 using Task = std::function<void()>;  ///< 任务类型定义
 
-class WorkStealingQueue {
+class WorkStealingQueue final {
    public:
     WorkStealingQueue() = default;
     ~WorkStealingQueue() = default;
