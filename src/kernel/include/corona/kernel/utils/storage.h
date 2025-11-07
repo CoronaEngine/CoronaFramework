@@ -158,6 +158,7 @@ class Storage {
                 *ptr = T{};
                 initializer(*ptr);
                 parent_buffer->occupied[index].store(true, std::memory_order_release);
+                occupied_count_.fetch_add(1, std::memory_order_relaxed);
             }
         } else {
             throw std::runtime_error("Parent buffer not found during allocation");
@@ -189,6 +190,7 @@ class Storage {
             {
                 std::unique_lock slot_lock(parent_buffer->mutexes[index]);
                 parent_buffer->occupied[index].store(false, std::memory_order_release);
+                occupied_count_.fetch_sub(1, std::memory_order_relaxed);
             }
             free_slots_.enqueue(id);
         } else {
@@ -370,6 +372,14 @@ class Storage {
         }
     }
 
+    std::size_t count() const {
+        return occupied_count_.load(std::memory_order_relaxed);
+    }
+
+    bool empty() const {
+        return count() == 0;
+    }
+
    private:
     /**
      * @brief 根据槽位句柄查找其所属的 StaticBuffer
@@ -397,6 +407,7 @@ class Storage {
     }
 
    private:
+    std::atomic<std::size_t> occupied_count_{0};             ///< 已占用槽位计数
     std::shared_mutex list_mutex_;                           ///< 保护 buffers_ 列表的锁
     LockFreeQueue<Handle> free_slots_;                       ///< 空闲槽位的无锁队列
     std::list<StaticBuffer<T, BufferCapacity>> buffers_;     ///< 底层 buffer 列表
