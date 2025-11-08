@@ -35,10 +35,9 @@ if(CORONA_PAL_HEADERS)
     target_sources(corona_pal PRIVATE ${CORONA_PAL_HEADERS})
 endif()
 
-get_target_property(_corona_pal_all_sources corona_pal SOURCES)
-if(_corona_pal_all_sources)
-    source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${_corona_pal_all_sources})
-endif()
+corona_group_sources(corona_pal ${CMAKE_CURRENT_SOURCE_DIR})
+
+set_target_properties(corona_pal PROPERTIES FOLDER "Libraries/PAL")
 
 target_include_directories(corona_pal PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

@@ -26,7 +26,9 @@ if(CORONA_KERNEL_HEADERS)
     target_sources(corona_kernel PRIVATE ${CORONA_KERNEL_HEADERS})
 endif()
 
-source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${CORONA_KERNEL_SOURCES} ${CORONA_KERNEL_HEADERS})
+corona_group_sources(corona_kernel ${CMAKE_CURRENT_SOURCE_DIR})
+
+set_target_properties(corona_kernel PROPERTIES FOLDER "Libraries/Kernel")
 
 target_include_directories(corona_kernel PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

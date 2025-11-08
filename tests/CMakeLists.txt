@@ -25,7 +25,8 @@ function(corona_add_test TARGET_NAME)
             corona_kernel
             corona_pal
     )
-    source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${ARGN} ${_test_common_header})
+    set_target_properties(${TARGET_NAME} PROPERTIES FOLDER "Tests")
+    corona_group_sources(${TARGET_NAME} ${CMAKE_CURRENT_SOURCE_DIR})
 endfunction()
 
 # 线程安全测试
