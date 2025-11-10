@@ -15,11 +15,12 @@ void Corona::Kernal::Utils::TaskGroup::wait() {
     // 阶段 2：高效休眠等待（使用 C++20 atomic::wait）
     // 如果还有任务未完成，使用 atomic::wait 进入休眠
     // 最后一个完成的任务会通过 notify_all 唤醒
-    int current_tasks = task_count_.load(std::memory_order_relaxed);
+    // 使用 acquire 与任务完成时的 release 建立 synchronizes-with 关系
+    std::size_t current_tasks = task_count_.load(std::memory_order_acquire);
     while (current_tasks > 0) {
         // atomic::wait 会阻塞直到 task_count_ 的值不等于 current_tasks
-        task_count_.wait(current_tasks, std::memory_order_relaxed);
+        task_count_.wait(current_tasks, std::memory_order_acquire);
         // 唤醒后重新加载当前值，继续检查
-        current_tasks = task_count_.load(std::memory_order_relaxed);
+        current_tasks = task_count_.load(std::memory_order_acquire);
     }
 }

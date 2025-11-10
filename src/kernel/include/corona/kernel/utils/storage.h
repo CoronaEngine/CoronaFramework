@@ -213,7 +213,6 @@ class Storage {
      * @note 线程安全，使用共享锁允许多个读者并发访问
      * @throws std::runtime_error 若无法找到槽位所属的 buffer（可能是无效句柄）
      */
-    [[nodiscard]]
     bool read(Handle id, const std::function<void(const T&)>& reader) {
         T* ptr = reinterpret_cast<T*>(id);
         StaticBuffer<T, BufferCapacity>* parent_buffer = get_parent_buffer(id);
@@ -247,7 +246,6 @@ class Storage {
      * @note 线程安全，使用独占锁确保独占写入
      * @throws std::runtime_error 若无法找到槽位所属的 buffer（可能是无效句柄）
      */
-    [[nodiscard]]
     bool write(Handle id, const std::function<void(T&)>& writer) {
         T* ptr = reinterpret_cast<T*>(id);
         StaticBuffer<T, BufferCapacity>* parent_buffer = get_parent_buffer(id);

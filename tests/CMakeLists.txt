@@ -87,6 +87,9 @@ corona_add_test(kernel_systemmanager_mt_test kernel/systemmanager_mt_test.cpp)
 # Storage 测试
 corona_add_test(kernel_storage_test kernel/storage_test.cpp)
 
+# TaskGroup 测试
+corona_add_test(kernel_task_group_test kernel/task_group_test.cpp)
+
 # ========================================
 # 启用测试
 # ========================================
@@ -200,6 +203,12 @@ add_test(
     COMMAND kernel_storage_test
 )
 
+# 注册 TaskGroup 测试
+add_test(
+    NAME TaskGroup
+    COMMAND kernel_task_group_test
+)
+
 # ========================================
 # ThreadSanitizer 配置
 # ========================================
@@ -275,6 +284,7 @@ message(STATUS "  - kernel_event_bus_test: EventBus publish/subscribe tests")
 message(STATUS "  - kernel_logger_test: Logger functionality tests")
 message(STATUS "  - kernel_vfs_test: Virtual file system tests")
 message(STATUS "  - kernel_benchmark_test: Performance benchmark tests")
+message(STATUS "  - kernel_task_group_test: Task group parallel execution tests")
 message(STATUS "")
 message(STATUS "Multi-threaded Stability Tests:")
 message(STATUS "  - kernel_eventbus_mt_test: EventBus concurrent operations")

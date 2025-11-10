@@ -34,6 +34,10 @@ namespace Corona::Kernal::Utils {
  * group.wait();  // 等待所有任务完成
  * @endcode
  *
+ * @warning 嵌套限制：避免在任务中嵌套创建超过 10 层的 TaskGroup，
+ *          过深的嵌套可能导致栈溢出或线程池资源耗尽。
+ *          如果必须嵌套，请确保每层的任务数量较少，并监控栈使用情况。
+ *
  * @note 标记为 final 防止继承，确保类的行为不被改变
  * @note 不支持拷贝和赋值，确保任务组的生命周期管理清晰
  * @thread_safety run() 和 wait() 都是线程安全的，但通常由单个线程管理
@@ -83,7 +87,8 @@ class TaskGroup final {
             }
 
             // 递减任务计数器，如果是最后一个任务则通知等待者
-            if (task_count_.fetch_sub(1, std::memory_order_relaxed) == 1) {
+            // 使用 release 保证任务的所有副作用对 wait() 中的 acquire 可见
+            if (task_count_.fetch_sub(1, std::memory_order_release) == 1) {
                 task_count_.notify_all();  // C++20 atomic::notify_all
             }
         };
@@ -104,6 +109,10 @@ class TaskGroup final {
      *
      * @note 使用 C++20 的 atomic<T>::wait/notify，比条件变量更高效
      * @note wait() 可以多次调用，但第二次调用会立即返回（计数已为 0）
+     * @note wait() 无超时机制，会无限期阻塞直到所有任务完成
+     *
+     * @warning 在嵌套的任务中调用 wait() 可能导致死锁，如果线程池资源被耗尽。
+     *          建议嵌套深度不超过 10 层，并确保每层的任务数量适中。
      */
     void wait();
 
