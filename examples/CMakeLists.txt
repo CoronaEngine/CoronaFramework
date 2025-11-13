@@ -2,7 +2,6 @@ function(corona_add_example TARGET_NAME)
 	add_executable(${TARGET_NAME} ${ARGN})
 	target_link_libraries(${TARGET_NAME} PRIVATE corona::kernel corona::pal)
 	set_target_properties(${TARGET_NAME} PROPERTIES FOLDER "Examples")
-	corona_group_sources(${TARGET_NAME} ${CMAKE_CURRENT_SOURCE_DIR})
 endfunction()
 
 # ========================================

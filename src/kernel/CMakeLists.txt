@@ -18,17 +18,15 @@ file(GLOB_RECURSE CORONA_KERNEL_HEADERS CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp"
 )
 
-add_library(corona_kernel STATIC ${CORONA_KERNEL_SOURCES})
+add_library(corona_kernel STATIC
+    ${CORONA_KERNEL_SOURCES}
+    ${CORONA_KERNEL_HEADERS})
 
 add_library(corona::kernel ALIAS corona_kernel)
 
 if(CORONA_KERNEL_HEADERS)
     target_sources(corona_kernel PRIVATE ${CORONA_KERNEL_HEADERS})
 endif()
-
-corona_group_sources(corona_kernel ${CMAKE_CURRENT_SOURCE_DIR})
-
-set_target_properties(corona_kernel PROPERTIES FOLDER "Libraries/Kernel")
 
 target_include_directories(corona_kernel PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
