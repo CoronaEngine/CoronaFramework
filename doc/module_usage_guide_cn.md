@@ -1,23 +1,23 @@
 # Corona Framework 模块指南
 
 ### 1. Kernel 模块（`src/kernel`）
-- **KernelContext**（`src/kernel/src/core/kernel_context.cpp`）：单例入口，负责组装日志、事件总线、事件流、插件管理器、虚拟文件系统和系统管理器。必须在访问任何服务之前调用 `KernelContext::instance().initialize()`，结束时调用 `shutdown()` 做资源回收。
-- **Logger**（`src/kernel/src/core/logger.cpp`）：提供同步控制台输出以及异步文件写入。可在初始化阶段注册自定义 sink，将日志导向游戏内 UI、网络或其他目标。
-- **事件总线**（`src/kernel/include/corona/kernel/event/i_event_bus.h` 与 `.../event_bus.cpp`）：基于模板的同步发布/订阅。实现会在持锁状态下复制订阅者，再解锁后调用处理函数，避免长时间持有互斥量。典型用法：
+- **KernelContext**（`src/kernel/core/kernel_context.cpp`）：单例入口，负责组装日志、事件总线、事件流、插件管理器、虚拟文件系统和系统管理器。必须在访问任何服务之前调用 `KernelContext::instance().initialize()`，结束时调用 `shutdown()` 做资源回收。
+- **Logger**（`src/kernel/core/logger.cpp`）：提供同步控制台输出以及异步文件写入。可在初始化阶段注册自定义 sink，将日志导向游戏内 UI、网络或其他目标。
+- **事件总线**（`include/corona/kernel/event/i_event_bus.h` 与 `src/kernel/event/event_bus.cpp`）：基于模板的同步发布/订阅。实现会在持锁状态下复制订阅者，再解锁后调用处理函数，避免长时间持有互斥量。典型用法：
   ```cpp
   auto bus = KernelContext::instance().event_bus();
   auto token = bus->subscribe<MyEvent>([](const MyEvent& evt) { /* 处理逻辑 */ });
   bus->publish(MyEvent{...});
   ```
   保持 `SubscribeToken` 有效以维持订阅；如需及时解绑，可主动销毁。
-- **事件流**（`src/kernel/include/corona/kernel/event/i_event_stream.h`）：基于队列的异步消息管道，支持多种背压策略（丢弃旧消息、阻塞发布者等）。通过 `KernelContext::instance().event_stream()->get_stream<T>()` 获取流；发布端调用 `publish`，订阅端使用 `EventSubscription<T>` 轮询或注册回调。
-- **SystemBase 与 SystemManager**（`src/kernel/include/corona/kernel/system/system_base.h`、`.../system_manager.cpp`）：用于构建多线程系统。继承 `SystemBase` 并重写 `on_initialize`、`on_update`、`on_shutdown`。使用 `SystemManager::register_system<YourSystem>()` 注册后，通过 `initialize_all()`、`start_all()` 控制生命周期；优先级决定初始化顺序。
-- **虚拟文件系统**（`src/kernel/src/core/vfs.cpp`）：统一路径格式并委托至 PAL 文件系统。先挂载物理路径，再通过虚拟路径访问，如 `virtual_file_system()->open("root:/config.json")`。
-- **PluginManager**（`src/kernel/src/core/plugin_manager.cpp`）：加载平台动态库，要求导出 `create_plugin`/`destroy_plugin`。使用 `register_plugin` 加载并在 `unload_all` 清理。建议在 PAL 层封装平台细节，保证内核模块保持跨平台。
+- **事件流**（`include/corona/kernel/event/i_event_stream.h`）：基于队列的异步消息管道，支持多种背压策略（丢弃旧消息、阻塞发布者等）。通过 `KernelContext::instance().event_stream()->get_stream<T>()` 获取流；发布端调用 `publish`，订阅端使用 `EventSubscription<T>` 轮询或注册回调。
+- **SystemBase 与 SystemManager**（`include/corona/kernel/system/system_base.h`、`src/kernel/system/system_manager.cpp`）：用于构建多线程系统。继承 `SystemBase` 并重写 `on_initialize`、`on_update`、`on_shutdown`。使用 `SystemManager::register_system<YourSystem>()` 注册后，通过 `initialize_all()`、`start_all()` 控制生命周期；优先级决定初始化顺序。
+- **虚拟文件系统**（`src/kernel/core/vfs.cpp`）：统一路径格式并委托至 PAL 文件系统。先挂载物理路径，再通过虚拟路径访问，如 `virtual_file_system()->open("root:/config.json")`。
+- **PluginManager**（`src/kernel/core/plugin_manager.cpp`）：加载平台动态库，要求导出 `create_plugin`/`destroy_plugin`。使用 `register_plugin` 加载并在 `unload_all` 清理。建议在 PAL 层封装平台细节，保证内核模块保持跨平台。
 
 ### 2. 平台抽象层（`src/pal`）
-- **StdFileSystem**（`src/pal/src/common/file_system.cpp`）：默认文件系统实现，封装操作系统 API 并兼顾 VFS 的路径规范和错误处理。
-- **动态库接口**：接口定义在 `include/corona/pal/dynamic_library/`。Windows 版本位于 `src/pal/src/platform/windows/win_dynamic_library.cpp`；Linux/macOS 当前仍为占位实现，会抛出 `std::runtime_error`。跨平台部署时需在调用前加平台判断。
+- **StdFileSystem**（`src/pal/common/file_system.cpp`）：默认文件系统实现，封装操作系统 API 并兼顾 VFS 的路径规范和错误处理。
+- **动态库接口**：接口定义在 `include/corona/pal/dynamic_library/`。Windows 版本位于 `src/pal/platform/windows/win_dynamic_library.cpp`；Linux/macOS 当前仍为占位实现，会抛出 `std::runtime_error`。跨平台部署时需在调用前加平台判断。
 - 扩展 PAL 时，在对应平台目录添加实现并在 `src/pal/CMakeLists.txt` 中注册。保持平台分支集中管理，避免核心模块直接引用系统头文件。
 
 ### 3. 内存工具（`src/memory`）

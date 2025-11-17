@@ -1,23 +1,22 @@
 # Corona Framework Module Guide
 
 ### 1. Kernel Module (`src/kernel`)
-- **KernelContext** (`src/kernel/src/core/kernel_context.cpp`): singleton that wires logger, event bus, event streams, plugin manager, virtual file system (VFS), and system manager. Always call `KernelContext::instance().initialize()` before using services and `shutdown()` when the application terminates.
-- **Logger** (`src/kernel/src/core/logger.cpp`): provides synchronous console output and asynchronous file sinks. Register additional sinks during initialization to direct logs to custom destinations.
-- **Event Bus** (`src/kernel/include/corona/kernel/event/i_event_bus.h`, `.../event_bus.cpp`): type-safe synchronous publish/subscribe. Handlers are copied outside the lock before invocation, so avoid capturing large state by value. Typical usage:
+- **KernelContext** (`src/kernel/core/kernel_context.cpp`): singleton that wires logger, event bus, event streams, plugin manager, virtual file system (VFS), and system manager. Always call `KernelContext::instance().initialize()` before using services and `shutdown()` when the application terminates.
+- **Logger** (`src/kernel/core/logger.cpp`): provides synchronous console output and asynchronous file sinks. Register additional sinks during initialization to direct logs to custom destinations.
+- **Event Bus** (`include/corona/kernel/event/i_event_bus.h`, `src/kernel/event/event_bus.cpp`): type-safe synchronous publish/subscribe. Handlers are copied outside the lock before invocation, so avoid capturing large state by value. Typical usage:
   ```cpp
   auto bus = KernelContext::instance().event_bus();
   auto token = bus->subscribe<MyEvent>([](const MyEvent& evt) { /* handle */ });
   bus->publish(MyEvent{...});
   ```
   Keep `SubscribeToken` instances alive to retain subscriptions; release explicitly for deterministic teardown.
-- **Event Streams** (`src/kernel/include/corona/kernel/event/i_event_stream.h`): queue-based asynchronous messaging with backpressure policies (e.g., drop oldest, block producer). Obtain streams through `KernelContext::instance().event_stream()->get_stream<T>()`. Producers call `publish`, consumers obtain `EventSubscription<T>` and invoke `poll` or register callbacks.
-- **SystemBase & SystemManager** (`src/kernel/include/corona/kernel/system/system_base.h`, `.../system_manager.cpp`): build multi-threaded systems. Derive from `SystemBase`, override lifecycle hooks (`on_initialize`, `on_update`, `on_shutdown`), and register via `SystemManager::register_system<YourSystem>()`. Priority determines scheduling order during `initialize_all()`. Systems start on dedicated threads when `start_all()` is invoked.
-- **Virtual File System** (`src/kernel/src/core/vfs.cpp`): normalizes virtual paths and dispatches to PAL file systems. Mount physical roots with identifiers and resolve via `virtual_file_system()->open("root:/path.txt")`.
-- **PluginManager** (`src/kernel/src/core/plugin_manager.cpp`): loads platform dynamic libraries exporting `create_plugin`/`destroy_plugin`. Use `register_plugin` to load, `unload_all` for cleanup. Wrap platform-specific code with PAL interfaces to keep kernel portable.
+- **SystemBase & SystemManager** (`include/corona/kernel/system/system_base.h`, `src/kernel/system/system_manager.cpp`): build multi-threaded systems. Derive from `SystemBase`, override lifecycle hooks (`on_initialize`, `on_update`, `on_shutdown`), and register via `SystemManager::register_system<YourSystem>()`. Priority determines scheduling order during `initialize_all()`. Systems start on dedicated threads when `start_all()` is invoked.
+- **Virtual File System** (`src/kernel/core/vfs.cpp`): normalizes virtual paths and dispatches to PAL file systems. Mount physical roots with identifiers and resolve via `virtual_file_system()->open("root:/path.txt").`
+- **PluginManager** (`src/kernel/core/plugin_manager.cpp`): loads platform dynamic libraries exporting `create_plugin`/`destroy_plugin`. Use `register_plugin` to load, `unload_all` for cleanup. Wrap platform-specific code with PAL interfaces to keep kernel portable.
 
 ### 2. Platform Abstraction Layer (`src/pal`)
-- **StdFileSystem** (`src/pal/src/common/file_system.cpp`): default PAL filesystem. Implements open/read/write against the OS APIs while honoring VFS expectations (normalized paths, error propagation).
-- **Dynamic Library Interfaces**: `IDynamicLibrary` under `include/corona/pal/dynamic_library/`. Windows implementation is `WinDynamicLibrary` (`src/pal/src/platform/windows/win_dynamic_library.cpp`). Linux/macOS stubs currently throw `std::runtime_error`; guard usage with platform checks when shipping cross-platform plugins.
+- **StdFileSystem** (`src/pal/common/file_system.cpp`): default PAL filesystem. Implements open/read/write against the OS APIs while honoring VFS expectations (normalized paths, error propagation).
+- **Dynamic Library Interfaces**: `IDynamicLibrary` under `include/corona/pal/dynamic_library/`. Windows implementation is `WinDynamicLibrary` (`src/pal/platform/windows/win_dynamic_library.cpp`). Linux/macOS stubs currently throw `std::runtime_error`; guard usage with platform checks when shipping cross-platform plugins.
 - Extend PAL by adding new platform-specific directories and wiring them in `src/pal/CMakeLists.txt`. Keep platform decisions centralized to prevent kernel modules from importing OS headers directly.
 
 ### 3. Memory Utilities (`src/memory`)

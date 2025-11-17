@@ -1010,7 +1010,7 @@ TEST(LockFreeQueueTests, StarvationFreedomTest) {
     constexpr std::size_t operations_per_thread = 10000;
     std::atomic<bool> start{false};
     std::vector<std::atomic<std::size_t>> thread_operations(thread_count);
-    
+
     for (auto& op : thread_operations) {
         op.store(0);
     }
@@ -1025,7 +1025,7 @@ TEST(LockFreeQueueTests, StarvationFreedomTest) {
             for (std::size_t i = 0; i < operations_per_thread; ++i) {
                 queue.enqueue(tid * operations_per_thread + i);
                 thread_operations[tid].fetch_add(1, std::memory_order_relaxed);
-                
+
                 std::uint64_t value;
                 queue.dequeue(value);  // 不检查返回值，允许失败
             }
@@ -1121,18 +1121,18 @@ TEST(LockFreeQueueTests, RapidCreateDestroyTest) {
 
     for (std::size_t i = 0; i < iterations; ++i) {
         LockFreeQueue<std::uint64_t> queue;
-        
+
         // 快速填充
         for (std::size_t j = 0; j < 100; ++j) {
             queue.enqueue(j);
         }
-        
+
         // 快速消费
         std::uint64_t value;
         while (queue.dequeue(value)) {
             operations_completed.fetch_add(1, std::memory_order_relaxed);
         }
-        
+
         // 队列在此处销毁
     }
 
@@ -1145,15 +1145,15 @@ TEST(LockFreeQueueTests, MixedSizeDataTest) {
         std::uint64_t id;
         char padding[128];
         std::uint64_t checksum;
-        
+
         LargeData() : id(0), checksum(0) {
             std::memset(padding, 0, sizeof(padding));
         }
-        
+
         explicit LargeData(std::uint64_t val) : id(val), checksum(val ^ 0xDEADBEEF) {
             std::memset(padding, static_cast<int>(val & 0xFF), sizeof(padding));
         }
-        
+
         bool is_valid() const {
             return checksum == (id ^ 0xDEADBEEF);
         }
@@ -1259,13 +1259,13 @@ TEST(LockFreeQueueTests, ProducerConsumerImbalanceExtreme) {
                 std::uint64_t value;
                 if (queue.dequeue(value)) {
                     ASSERT_LT(value, total_items);
-                    
+
                     {
                         std::lock_guard<std::mutex> lock(seen_mutex);
                         seen[value]++;
                         ASSERT_EQ(seen[value], 1u);
                     }
-                    
+
                     consumed.fetch_add(1, std::memory_order_release);
                 } else {
                     std::this_thread::yield();
@@ -1284,11 +1284,11 @@ TEST(LockFreeQueueTests, ProducerConsumerImbalanceExtreme) {
     ASSERT_TRUE(producer_done.load());
     ASSERT_EQ(produced.load(), total_items);
     ASSERT_EQ(consumed.load(), total_items);
-    
+
     for (std::size_t i = 0; i < total_items; ++i) {
         ASSERT_EQ(seen[i], 1u);
     }
-    
+
     ASSERT_TRUE(queue.empty());
 }
 
@@ -1312,12 +1312,12 @@ TEST(LockFreeQueueTests, InterruptedOperationsTest) {
             for (std::size_t i = 0; i < operations; ++i) {
                 queue.enqueue(tid * operations + i);
                 total_enqueued.fetch_add(1, std::memory_order_relaxed);
-                
+
                 // 随机暂停，模拟中断
                 if (i % 100 == 0) {
                     std::this_thread::sleep_for(std::chrono::microseconds(10));
                 }
-                
+
                 std::uint64_t value;
                 if (queue.dequeue(value)) {
                     total_dequeued.fetch_add(1, std::memory_order_relaxed);
@@ -1364,10 +1364,10 @@ TEST(LockFreeQueueTests, ThreadMigrationTest) {
                 for (std::size_t j = 0; j < items_per_iteration; ++j) {
                     queue.enqueue(j);
                 }
-                
+
                 // 强制线程让出 CPU（可能触发迁移）
                 std::this_thread::yield();
-                
+
                 // 出队
                 for (std::size_t j = 0; j < items_per_iteration; ++j) {
                     std::uint64_t value;
@@ -1402,19 +1402,19 @@ TEST(LockFreeQueueTests, MemoryReclamationTest) {
         for (std::size_t i = 0; i < items_per_cycle; ++i) {
             queue.enqueue(i);
         }
-        
+
         // 清空队列
         std::uint64_t value;
         std::size_t dequeued = 0;
         while (queue.dequeue(value)) {
             dequeued++;
         }
-        
+
         ASSERT_EQ(dequeued, items_per_cycle);
         ASSERT_TRUE(queue.empty());
     }
 
-    std::cout << "  Completed " << cycles << " cycles of " 
+    std::cout << "  Completed " << cycles << " cycles of "
               << items_per_cycle << " items without memory leak\n";
 }
 

@@ -1,21 +1,23 @@
+set(CORONA_KERNEL_PUBLIC_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/include/corona/kernel")
+
 set(CORONA_KERNEL_SOURCES
-    src/core/logger.cpp
-    src/event/event_bus.cpp
-    src/event/event_stream.cpp
-    src/core/vfs.cpp
-    src/core/plugin_manager.cpp
-    src/core/kernel_context.cpp
-    src/system/system_manager.cpp
-    src/system/system_base.cpp
-    src/memory/cache_aligned_allocator.cpp
-    src/utils/work_stealing_queue.cpp
-    src/utils/task_scheduler.cpp
-    src/utils/task_group.cpp
+    core/logger.cpp
+    event/event_bus.cpp
+    event/event_stream.cpp
+    core/vfs.cpp
+    core/plugin_manager.cpp
+    core/kernel_context.cpp
+    system/system_manager.cpp
+    system/system_base.cpp
+    memory/cache_aligned_allocator.cpp
+    utils/work_stealing_queue.cpp
+    utils/task_scheduler.cpp
+    utils/task_group.cpp
 )
 
 file(GLOB_RECURSE CORONA_KERNEL_HEADERS CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp"
+    "${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/*.h"
+    "${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/*.hpp"
 )
 
 add_library(corona_kernel STATIC
@@ -29,7 +31,7 @@ if(CORONA_KERNEL_HEADERS)
 endif()
 
 target_include_directories(corona_kernel PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
 
@@ -43,8 +45,4 @@ install(TARGETS corona_kernel
     ARCHIVE DESTINATION lib
     RUNTIME DESTINATION bin
     INCLUDES DESTINATION include
-)
-
-install(DIRECTORY include/corona
-    DESTINATION include
 )

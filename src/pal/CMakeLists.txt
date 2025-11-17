@@ -1,11 +1,13 @@
+set(CORONA_PAL_PUBLIC_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/include/corona/pal")
+
 set(CORONA_PAL_SOURCES
-    src/common/file_system.cpp
-    src/common/factory.cpp
+    common/file_system.cpp
+    common/factory.cpp
 )
 
 file(GLOB_RECURSE CORONA_PAL_HEADERS CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp"
+    "${CORONA_PAL_PUBLIC_INCLUDE_DIR}/*.h"
+    "${CORONA_PAL_PUBLIC_INCLUDE_DIR}/*.hpp"
 )
 
 add_library(corona_pal STATIC
@@ -18,18 +20,18 @@ add_library(corona::pal ALIAS corona_pal)
 # Add platform-specific sources
 if(WIN32)
     target_sources(corona_pal PRIVATE
-        src/platform/windows/win_dynamic_library.cpp
+        platform/windows/win_dynamic_library.cpp
     )
 elseif(UNIX AND NOT APPLE)
     # Linux support - to be implemented
     # target_sources(corona_pal PRIVATE
-    # src/platform/linux/linux_dynamic_library.cpp
+    # platform/linux/linux_dynamic_library.cpp
     # )
     message(WARNING "Linux platform support not yet implemented")
 elseif(APPLE)
     # macOS support - to be implemented
     # target_sources(corona_pal PRIVATE
-    # src/platform/macos/macos_dynamic_library.cpp
+    # platform/macos/macos_dynamic_library.cpp
     # )
     message(WARNING "macOS platform support not yet implemented")
 endif()
@@ -39,7 +41,7 @@ if(CORONA_PAL_HEADERS)
 endif()
 
 target_include_directories(corona_pal PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
 
@@ -52,8 +54,4 @@ install(TARGETS corona_pal
     ARCHIVE DESTINATION lib
     RUNTIME DESTINATION bin
     INCLUDES DESTINATION include
-)
-
-install(DIRECTORY include/corona
-    DESTINATION include
 )

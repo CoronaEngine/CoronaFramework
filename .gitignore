@@ -140,3 +140,5 @@ test*.txt
 
 # Cache files
 .cache/
+
+third_party/

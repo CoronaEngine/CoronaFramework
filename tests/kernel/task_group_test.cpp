@@ -1,4 +1,6 @@
 // Task Group 测试
+#include "corona/kernel/utils/task_group.h"
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -9,7 +11,6 @@
 #include <thread>
 #include <vector>
 
-#include "corona/kernel/utils/task_group.h"
 #include "test_framework.h"
 
 using namespace Corona::Kernal::Utils;
@@ -135,7 +136,7 @@ TEST(TaskGroup, ExceptionInTask) {
     std::atomic<int> completed{0};
 
     TaskGroup group;
-    
+
     // 第一个任务抛出异常
     group.run([&completed]() {
         throw std::runtime_error("Test exception");
@@ -148,14 +149,14 @@ TEST(TaskGroup, ExceptionInTask) {
 
     // wait 应该正常返回，不会因异常而中断
     ASSERT_NO_THROW(group.wait());
-    
+
     // 正常任务应该完成
     ASSERT_EQ(completed.load(), 1);
 }
 
 TEST(TaskGroup, MultipleExceptions) {
     TaskGroup group;
-    
+
     for (int i = 0; i < 10; ++i) {
         group.run([]() {
             throw std::runtime_error("Exception in task");
@@ -206,7 +207,7 @@ TEST(TaskGroup, ParallelSpeedup) {
     std::cout << "  Parallel: " << parallel_duration << " ms\n";
     std::cout << "  Serial: " << serial_duration << " ms\n";
     std::cout << "  Speedup: " << (serial_duration / parallel_duration) << "x\n";
-    
+
     // 至少应该不会比串行慢太多（考虑线程开销）
     ASSERT_LT(parallel_duration, serial_duration * 2.0);
 }
@@ -309,7 +310,7 @@ TEST(TaskGroup, MainThreadParticipation) {
 
     // 在大量任务的情况下，主线程应该有机会参与执行
     // 注意：这个测试依赖于 TaskScheduler 的实现
-    std::cout << "  Main thread participated: " 
+    std::cout << "  Main thread participated: "
               << (main_thread_participated.load() ? "Yes" : "No") << "\n";
 }
 
@@ -350,7 +351,7 @@ TEST(TaskGroup, DeepNesting) {
     for (int i = 0; i < nesting_depth; ++i) {
         expected *= tasks_per_level;
     }
-    
+
     std::cout << "  Executed " << total_executed.load() << " nested tasks (expected " << expected << ")\n";
     ASSERT_EQ(total_executed.load(), expected);
 }
@@ -360,9 +361,9 @@ TEST(TaskGroup, ExcessiveNestingWarning) {
     // 这个测试验证文档中应该说明的限制：
     // 如果嵌套深度过大，可能导致栈溢出或线程池耗尽
     // 实际项目中应避免深度 > 10 的嵌套
-    
+
     std::atomic<bool> completed{false};
-    
+
     // 使用较小的深度验证基本功能
     std::function<void(int)> shallow_nest = [&](int depth) {
         if (depth == 0) {
@@ -375,24 +376,24 @@ TEST(TaskGroup, ExcessiveNestingWarning) {
         });
         group.wait();
     };
-    
+
     TaskGroup root;
     root.run([&]() { shallow_nest(3); });
     root.wait();
-    
+
     ASSERT_TRUE(completed.load());
     std::cout << "  ⚠️  WARNING: Avoid nesting depth > 10 in production code\n";
 }
 
 TEST(TaskGroup, HighContentionStress) {
     // 多个线程同时向同一个任务组提交任务（压力测试）
-    constexpr int num_submitters = 4;  // 降低线程数
+    constexpr int num_submitters = 4;         // 降低线程数
     constexpr int tasks_per_submitter = 200;  // 降低任务数
     std::atomic<int> counter{0};
-    
+
     TaskGroup group;
     std::vector<std::thread> submitters;
-    
+
     for (int i = 0; i < num_submitters; ++i) {
         submitters.emplace_back([&group, &counter, tasks_per_submitter]() {
             for (int j = 0; j < tasks_per_submitter; ++j) {
@@ -404,17 +405,17 @@ TEST(TaskGroup, HighContentionStress) {
             }
         });
     }
-    
+
     // 等待所有提交线程完成
     for (auto& t : submitters) {
         t.join();
     }
-    
+
     // 等待所有任务执行完成
     group.wait();
-    
+
     ASSERT_EQ(counter.load(), num_submitters * tasks_per_submitter);
-    std::cout << "  " << num_submitters << " threads submitted " 
+    std::cout << "  " << num_submitters << " threads submitted "
               << (num_submitters * tasks_per_submitter) << " tasks\n";
 }
 
@@ -423,9 +424,9 @@ TEST(TaskGroup, ResourceExhaustion) {
     constexpr int num_groups = 100;
     constexpr int tasks_per_group = 50;
     std::atomic<int> counter{0};
-    
+
     std::vector<std::unique_ptr<TaskGroup>> groups;
-    
+
     for (int i = 0; i < num_groups; ++i) {
         groups.push_back(std::make_unique<TaskGroup>());
         for (int j = 0; j < tasks_per_group; ++j) {
@@ -435,14 +436,14 @@ TEST(TaskGroup, ResourceExhaustion) {
             });
         }
     }
-    
+
     // 等待所有任务组完成
     for (auto& group : groups) {
         group->wait();
     }
-    
+
     ASSERT_EQ(counter.load(), num_groups * tasks_per_group);
-    std::cout << "  " << num_groups << " concurrent groups executed " 
+    std::cout << "  " << num_groups << " concurrent groups executed "
               << (num_groups * tasks_per_group) << " tasks\n";
 }
 
@@ -452,12 +453,12 @@ TEST(TaskGroup, ResourceExhaustion) {
 
 TEST(TaskGroup, LongRunningStability) {
     // 长时间重复创建和销毁任务组，检测内存泄漏
-    constexpr int iterations = 500;  // 降低迭代次数
+    constexpr int iterations = 500;          // 降低迭代次数
     constexpr int tasks_per_iteration = 20;  // 降低任务数
     std::atomic<int> total_executed{0};
-    
+
     auto start = std::chrono::high_resolution_clock::now();
-    
+
     for (int iter = 0; iter < iterations; ++iter) {
         TaskGroup group;
         for (int i = 0; i < tasks_per_iteration; ++i) {
@@ -472,14 +473,14 @@ TEST(TaskGroup, LongRunningStability) {
         }
         group.wait();
     }
-    
+
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration<double>(end - start).count();
-    
+
     ASSERT_EQ(total_executed.load(), iterations * tasks_per_iteration);
-    std::cout << "  Executed " << total_executed.load() 
+    std::cout << "  Executed " << total_executed.load()
               << " tasks in " << duration << " seconds\n";
-    std::cout << "  Throughput: " << (total_executed.load() / duration) 
+    std::cout << "  Throughput: " << (total_executed.load() / duration)
               << " tasks/sec\n";
 }
 
@@ -488,9 +489,9 @@ TEST(TaskGroup, ContinuousLoadTest) {
     constexpr int duration_seconds = 2;  // 降低到2秒
     std::atomic<bool> stop_flag{false};
     std::atomic<int> completed_tasks{0};
-    
+
     auto start = std::chrono::high_resolution_clock::now();
-    
+
     // 启动多个生产者线程持续提交任务
     std::vector<std::thread> producers;
     for (int i = 0; i < 2; ++i) {  // 降低到2个生产者
@@ -507,24 +508,24 @@ TEST(TaskGroup, ContinuousLoadTest) {
             }
         });
     }
-    
+
     // 运行指定时间
     std::this_thread::sleep_for(std::chrono::seconds(duration_seconds));
     stop_flag.store(true, std::memory_order_release);
-    
+
     // 等待生产者线程结束
     for (auto& t : producers) {
         t.join();
     }
-    
+
     auto end = std::chrono::high_resolution_clock::now();
     auto actual_duration = std::chrono::duration<double>(end - start).count();
-    
-    std::cout << "  Completed " << completed_tasks.load() 
+
+    std::cout << "  Completed " << completed_tasks.load()
               << " tasks in " << actual_duration << " seconds\n";
-    std::cout << "  Average throughput: " 
+    std::cout << "  Average throughput: "
               << (completed_tasks.load() / actual_duration) << " tasks/sec\n";
-    
+
     ASSERT_GT(completed_tasks.load(), 0);
 }
 
@@ -537,12 +538,12 @@ TEST(TaskGroup, MultipleGroupsIsolation) {
     constexpr int num_groups = 10;
     std::vector<std::atomic<int>> counters(num_groups);
     std::vector<std::unique_ptr<TaskGroup>> groups;
-    
+
     for (int i = 0; i < num_groups; ++i) {
         counters[i].store(0);
         groups.push_back(std::make_unique<TaskGroup>());
     }
-    
+
     // 每个任务组独立执行任务
     for (int i = 0; i < num_groups; ++i) {
         for (int j = 0; j < 100; ++j) {
@@ -552,19 +553,19 @@ TEST(TaskGroup, MultipleGroupsIsolation) {
             });
         }
     }
-    
+
     // 随机顺序等待（验证顺序无关性）
     std::vector<int> wait_order(num_groups);
     std::iota(wait_order.begin(), wait_order.end(), 0);
     std::random_device rd;
     std::mt19937 gen(rd());
     std::shuffle(wait_order.begin(), wait_order.end(), gen);
-    
+
     for (int idx : wait_order) {
         groups[idx]->wait();
         ASSERT_EQ(counters[idx].load(), 100);
     }
-    
+
     // 验证每个组都完成了自己的任务
     for (int i = 0; i < num_groups; ++i) {
         ASSERT_EQ(counters[i].load(), 100);
@@ -576,7 +577,7 @@ TEST(TaskGroup, ConcurrentGroupsNoInterference) {
     constexpr int num_threads = 8;
     std::vector<std::atomic<int>> counters(num_threads);
     std::vector<std::thread> threads;
-    
+
     for (int i = 0; i < num_threads; ++i) {
         counters[i].store(0);
         threads.emplace_back([&counters, i]() {
@@ -589,11 +590,11 @@ TEST(TaskGroup, ConcurrentGroupsNoInterference) {
             local_group.wait();
         });
     }
-    
+
     for (auto& t : threads) {
         t.join();
     }
-    
+
     // 验证每个线程的任务组都正确完成
     for (int i = 0; i < num_threads; ++i) {
         ASSERT_EQ(counters[i].load(), 200);
@@ -604,17 +605,17 @@ TEST(TaskGroup, MixedWorkloadConcurrency) {
     // 混合工作负载：短任务和长任务并发
     std::atomic<int> short_tasks{0};
     std::atomic<int> long_tasks{0};
-    
+
     TaskGroup short_group;
     TaskGroup long_group;
-    
+
     // 提交大量短任务
     for (int i = 0; i < 1000; ++i) {
         short_group.run([&short_tasks]() {
             short_tasks.fetch_add(1, std::memory_order_relaxed);
         });
     }
-    
+
     // 提交少量长任务
     for (int i = 0; i < 10; ++i) {
         long_group.run([&long_tasks]() {
@@ -622,15 +623,15 @@ TEST(TaskGroup, MixedWorkloadConcurrency) {
             long_tasks.fetch_add(1, std::memory_order_relaxed);
         });
     }
-    
+
     // 并发等待
     std::thread wait_long([&long_group]() { long_group.wait(); });
     short_group.wait();
     wait_long.join();
-    
+
     ASSERT_EQ(short_tasks.load(), 1000);
     ASSERT_EQ(long_tasks.load(), 10);
-    
+
     std::cout << "  Short tasks: " << short_tasks.load() << "\n";
     std::cout << "  Long tasks: " << long_tasks.load() << "\n";
 }
