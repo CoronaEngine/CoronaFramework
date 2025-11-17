@@ -1,5 +1,7 @@
 #pragma once
 
+#include <oneapi/tbb/concurrent_queue.h>
+
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -10,8 +12,6 @@
 #include <queue>
 #include <shared_mutex>
 #include <stdexcept>
-
-#include "lock_free_queue.h"
 
 namespace Corona::Kernel::Utils {
 
@@ -90,7 +90,7 @@ class Storage {
         for (std::size_t i = 0; i < InitialBuffers; ++i) {
             buffers_.emplace_back();
             for (std::size_t j = 0; j < BufferCapacity; ++j) {
-                free_slots_.enqueue(reinterpret_cast<Handle>(&(buffers_.back().buffer[j])));
+                free_slots_.push(reinterpret_cast<Handle>(&(buffers_.back().buffer[j])));
             }
         }
     }
@@ -131,18 +131,18 @@ class Storage {
     [[nodiscard]]
     Handle allocate(const std::function<void(T&)>& initializer) {
         Handle id;
-        if (!free_slots_.dequeue(id)) {
+        if (!free_slots_.try_pop(id)) {
             // 扩容
             std::unique_lock lock(list_mutex_);
             buffers_.emplace_back();
             for (std::size_t j = 0; j < BufferCapacity; ++j) {
-                free_slots_.enqueue(reinterpret_cast<Handle>(&(buffers_.back().buffer[j])));
+                free_slots_.push(reinterpret_cast<Handle>(&(buffers_.back().buffer[j])));
             }
             buffer_count_.fetch_add(1, std::memory_order_relaxed);
             lock.unlock();
 
             // 再次尝试分配
-            if (!free_slots_.dequeue(id)) {
+            if (!free_slots_.try_pop(id)) {
                 return 0;  // 分配失败
             }
         }
@@ -192,7 +192,7 @@ class Storage {
                 parent_buffer->occupied[index].store(false, std::memory_order_release);
                 occupied_count_.fetch_sub(1, std::memory_order_relaxed);
             }
-            free_slots_.enqueue(id);
+            free_slots_.push(id);
         } else {
             throw std::runtime_error("Parent buffer not found during deallocation");
         }
@@ -407,7 +407,7 @@ class Storage {
    private:
     std::atomic<std::size_t> occupied_count_{0};             ///< 已占用槽位计数
     std::shared_mutex list_mutex_;                           ///< 保护 buffers_ 列表的锁
-    LockFreeQueue<Handle> free_slots_;                       ///< 空闲槽位的无锁队列
+    tbb::concurrent_queue<Handle> free_slots_;               ///< 空闲槽位的无锁队列
     std::list<StaticBuffer<T, BufferCapacity>> buffers_;     ///< 底层 buffer 列表
     std::atomic<std::size_t> buffer_count_{InitialBuffers};  ///< 当前 buffer 数量
 };

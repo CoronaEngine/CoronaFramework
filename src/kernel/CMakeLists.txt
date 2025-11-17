@@ -36,7 +36,9 @@ target_include_directories(corona_kernel PUBLIC
 )
 
 target_compile_features(corona_kernel PUBLIC cxx_std_20)
-target_link_libraries(corona_kernel PUBLIC corona::pal)
+target_link_libraries(corona_kernel PUBLIC
+    corona::pal
+    TBB::tbb)
 
 # 安装规则
 install(TARGETS corona_kernel

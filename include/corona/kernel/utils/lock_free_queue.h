@@ -1,3 +1,6 @@
+/**
+❗❗❗Bug: ABA 问题未解决
+*/
 #pragma once
 
 #include <atomic>
