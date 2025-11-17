@@ -1,6 +1,7 @@
 function(corona_add_example TARGET_NAME)
 	add_executable(${TARGET_NAME} ${ARGN})
 	target_link_libraries(${TARGET_NAME} PRIVATE corona::kernel corona::pal)
+	corona_copy_tbb_runtime_artifacts(${TARGET_NAME})
 	set_target_properties(${TARGET_NAME} PROPERTIES FOLDER "Examples")
 endfunction()
 
@@ -33,3 +34,8 @@ corona_add_example(05_multithreading 05_multithreading/main.cpp)
 # 06 - Game Loop Example
 # ========================================
 corona_add_example(06_game_loop 06_game_loop/main.cpp)
+
+# ========================================
+# 07 - Storage Example
+# ========================================
+corona_add_example(07_storage 07_storage/main.cpp)
