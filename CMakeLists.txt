@@ -7,4 +7,4 @@ include(CoronaInit)
 include(CoronaTargets)
 include(CoronaFeatures)
 include(CoronaPackaging)
-
+include(CoronaTbbConfig)
