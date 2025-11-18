@@ -2,7 +2,7 @@ include_guard(GLOBAL)
 
 if(NOT DEFINED TBB_DIR OR TBB_DIR STREQUAL "")
     set(_plat "win")
-    set(TBB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/${_plat}/oneapi-tbb-2022.3.0/lib/cmake/tbb")
+    set(TBB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/${_plat}/oneapi-tbb-2022.3.0/lib/cmake/tbb" CACHE STRING "Path to TBB cmake configuration directory" FORCE)
     unset(_plat)
 endif()
 
