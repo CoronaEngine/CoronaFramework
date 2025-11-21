@@ -13,6 +13,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include "corona/pal/cfw_platform.h"
+
 namespace Corona::Kernel::Utils {
 
 /**
@@ -185,6 +187,7 @@ class Storage {
      *
      * @note 返回值为瞬时快照，多线程环境下可能在返回后立即变化
      */
+    CFW_FORCE_INLINE
     std::uint64_t capacity() const {
         return buffer_count_.load(std::memory_order_relaxed) * BufferCapacity;
     }
@@ -196,6 +199,7 @@ class Storage {
      *
      * @note 返回值为瞬时快照，多线程环境下可能在返回后立即变化
      */
+    CFW_FORCE_INLINE
     std::size_t count() const {
         return occupied_count_.load(std::memory_order_relaxed);
     }
@@ -207,6 +211,7 @@ class Storage {
      *
      * @note 基于 count() 的瞬时快照
      */
+    CFW_FORCE_INLINE
     bool empty() const {
         return count() == 0;
     }
@@ -220,6 +225,7 @@ class Storage {
      * @note 序列号计算公式：buffer_index * BufferCapacity + slot_index
      * @note 该序列号可用于数组索引等场景，但需注意扩容会导致序列号范围增加
      */
+    CFW_FORCE_INLINE
     std::int64_t seq_id(std::uintptr_t id) const {
         auto [index, buffer] = const_cast<Storage*>(this)->get_parent_buffer(id);
         if (index >= 0 && buffer) {
@@ -237,6 +243,7 @@ class Storage {
      *
      * @note 该方法是 seq_id(ObjectId) 的便捷重载，自动从 handle 中提取对象指针并转换为 ID
      */
+    CFW_FORCE_INLINE
     std::int64_t seq_id(const ReadHandle& handle) const {
         if (handle.valid()) {
             return seq_id(reinterpret_cast<std::uintptr_t>(handle.get()));
@@ -252,6 +259,7 @@ class Storage {
      *
      * @note 该方法是 seq_id(ObjectId) 的便捷重载，自动从 handle 中提取对象指针并转换为 ID
      */
+    CFW_FORCE_INLINE
     std::int64_t seq_id(const WriteHandle& handle) const {
         if (handle.valid()) {
             return seq_id(reinterpret_cast<std::uintptr_t>(handle.get()));
