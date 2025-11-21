@@ -230,6 +230,36 @@ class Storage {
     }
 
     /**
+     * @brief 根据只读句柄获取对象的全局唯一序列号
+     *
+     * @param handle 只读访问句柄
+     * @return 若句柄有效则返回非负序列号（0 ~ capacity-1），否则返回 -1
+     *
+     * @note 该方法是 seq_id(ObjectId) 的便捷重载，自动从 handle 中提取对象指针并转换为 ID
+     */
+    std::int64_t seq_id(const ReadHandle& handle) const {
+        if (handle.valid()) {
+            return seq_id(reinterpret_cast<std::uintptr_t>(handle.get()));
+        }
+        return -1;
+    }
+
+    /**
+     * @brief 根据读写句柄获取对象的全局唯一序列号
+     *
+     * @param handle 读写访问句柄
+     * @return 若句柄有效则返回非负序列号（0 ~ capacity-1），否则返回 -1
+     *
+     * @note 该方法是 seq_id(ObjectId) 的便捷重载，自动从 handle 中提取对象指针并转换为 ID
+     */
+    std::int64_t seq_id(const WriteHandle& handle) const {
+        if (handle.valid()) {
+            return seq_id(reinterpret_cast<std::uintptr_t>(handle.get()));
+        }
+        return -1;
+    }
+
+    /**
      * @brief 分配一个槽位并初始化
      *
      * @return 成功返回槽位 ID（内存地址），失败返回 0
