@@ -61,14 +61,38 @@ struct StaticBuffer {
  * @tparam InitialBuffers 初始 buffer 数量，必须 >= 1
  *
  * @note 句柄类型：
- * - Handle 是 std::uintptr_t 类型，存储槽位的实际内存地址
+ * - ObjectId 是 std::uintptr_t 类型，存储槽位的实际内存地址
  * - 通过 get_parent_buffer() 根据地址范围反查所属的 StaticBuffer
  *
  * @note 线程安全性：
  * - allocate：多线程安全，扩容时使用独占锁保护 buffer 列表
  * - deallocate：多线程安全，使用独占锁标记槽位空闲后回收句柄
- * - read/write：多线程安全，分别使用共享锁/独占锁访问槽位
- * - for_each_read/for_each_write：多线程安全，采用 try_lock 避免死锁，跳过的槽位稍后重试
+ * - acquire_read/acquire_write：多线程安全，分别使用共享锁/独占锁访问槽位
+ * - 迭代器：多线程安全，采用 try_lock 避免死锁，锁定失败的槽位会加入跳过队列稍后重试
+ *
+ * @note 使用示例：
+ * @code
+ * Storage<GameEntity, 64> entities;
+ *
+ * // 分配和访问
+ * auto id = entities.allocate();
+ * {
+ *     auto writer = entities.acquire_write(id);
+ *     writer->x = 100.0f;
+ * }
+ *
+ * // Range-based for 遍历（只读）
+ * for (const auto& entity : entities) {
+ *     std::cout << entity.name << std::endl;
+ * }
+ *
+ * // Range-based for 遍历（可写）
+ * for (auto& entity : entities) {
+ *     entity.x += 10.0f;
+ * }
+ *
+ * entities.deallocate(id);
+ * @endcode
  */
 template <typename T, std::size_t BufferCapacity = 128, std::size_t InitialBuffers = 2>
 class Storage {
