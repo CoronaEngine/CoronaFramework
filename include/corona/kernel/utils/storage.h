@@ -190,6 +190,46 @@ class Storage {
     }
 
     /**
+     * @brief 获取当前已占用的槽位数量
+     *
+     * @return 当前活跃对象的数量
+     *
+     * @note 返回值为瞬时快照，多线程环境下可能在返回后立即变化
+     */
+    std::size_t count() const {
+        return occupied_count_.load(std::memory_order_relaxed);
+    }
+
+    /**
+     * @brief 检查对象池是否为空
+     *
+     * @return 若当前没有活跃对象则返回 true，否则返回 false
+     *
+     * @note 基于 count() 的瞬时快照
+     */
+    bool empty() const {
+        return count() == 0;
+    }
+
+    /**
+     * @brief 根据对象 ID 计算全局唯一的序列号
+     *
+     * @param id 对象 ID（内存地址）
+     * @return 成功返回非负序列号（0 ~ capacity-1），失败返回 -1
+     *
+     * @note 序列号计算公式：buffer_index * BufferCapacity + slot_index
+     * @note 该序列号可用于数组索引等场景，但需注意扩容会导致序列号范围增加
+     */
+    std::int64_t seq_id(std::uintptr_t id) const {
+        auto [index, buffer] = const_cast<Storage*>(this)->get_parent_buffer(id);
+        if (index >= 0 && buffer) {
+            return index * BufferCapacity +
+                   (id - reinterpret_cast<std::uintptr_t>(&(buffer->buffer[0]))) / sizeof(T);
+        }
+        return -1;
+    }
+
+    /**
      * @brief 分配一个槽位并初始化
      *
      * @return 成功返回槽位 ID（内存地址），失败返回 0
@@ -224,7 +264,7 @@ class Storage {
 
         // 初始化槽位
         T* ptr = reinterpret_cast<T*>(id);
-        StaticBuffer<T, BufferCapacity>* parent_buffer = get_parent_buffer(id);
+        auto [index, parent_buffer] = get_parent_buffer(id);
 
         if (parent_buffer) {
             std::size_t index = (id - reinterpret_cast<ObjectId>(&(parent_buffer->buffer[0]))) / sizeof(T);
@@ -257,7 +297,7 @@ class Storage {
      */
     void deallocate(ObjectId id) {
         T* ptr = reinterpret_cast<T*>(id);
-        StaticBuffer<T, BufferCapacity>* parent_buffer = get_parent_buffer(id);
+        auto [_, parent_buffer] = get_parent_buffer(id);
 
         if (parent_buffer) {
             std::size_t index = (id - reinterpret_cast<std::uint64_t>(&(parent_buffer->buffer[0]))) / sizeof(T);
@@ -288,7 +328,7 @@ class Storage {
     [[nodiscard]]
     ReadHandle acquire_read(ObjectId id) {
         T* ptr = reinterpret_cast<T*>(id);
-        StaticBuffer<T, BufferCapacity>* parent_buffer = get_parent_buffer(id);
+        auto [_, parent_buffer] = get_parent_buffer(id);
 
         if (parent_buffer) {
             std::size_t index = (id - reinterpret_cast<ObjectId>(&(parent_buffer->buffer[0]))) / sizeof(T);
@@ -316,7 +356,7 @@ class Storage {
     [[nodiscard]]
     WriteHandle acquire_write(ObjectId id) {
         T* ptr = reinterpret_cast<T*>(id);
-        StaticBuffer<T, BufferCapacity>* parent_buffer = get_parent_buffer(id);
+        auto [_, parent_buffer] = get_parent_buffer(id);
 
         if (parent_buffer) {
             std::size_t index = (id - reinterpret_cast<ObjectId>(&(parent_buffer->buffer[0]))) / sizeof(T);
@@ -519,20 +559,14 @@ class Storage {
     ConstIterator cbegin() const { return ConstIterator(this, false); }
     ConstIterator cend() const { return ConstIterator(this, true); }
 
-    std::size_t count() const {
-        return occupied_count_.load(std::memory_order_relaxed);
-    }
-
-    bool empty() const {
-        return count() == 0;
-    }
-
    private:
     /**
-     * @brief 根据槽位 ID 查找其所属的 StaticBuffer
+     * @brief 根据槽位 ID 查找其所属的 StaticBuffer 及其索引
      *
      * @param id 槽位 ID（内存地址）
-     * @return 找到则返回 StaticBuffer 指针，否则返回 nullptr
+     * @return std::pair<std::int64_t, StaticBuffer*>
+     *         - first: buffer 在列表中的索引，未找到返回 -1
+     *         - second: 指向 StaticBuffer 的指针，未找到返回 nullptr
      *
      * @note 查找逻辑：
      *       1. 加 buffer 列表共享锁
@@ -542,15 +576,17 @@ class Storage {
      * @note 线程安全，使用共享锁保护 buffer 列表
      */
     [[nodiscard]]
-    StaticBuffer<T, BufferCapacity>* get_parent_buffer(ObjectId id) {
+    std::pair<std::int64_t, StaticBuffer<T, BufferCapacity>*> get_parent_buffer(ObjectId id) {
+        std::int64_t index = 0;
         std::shared_lock lock(list_mutex_);
         for (auto& buffer : buffers_) {
             if (id >= reinterpret_cast<ObjectId>(&(buffer.buffer[0])) &&
                 id <= reinterpret_cast<ObjectId>(&(buffer.buffer[BufferCapacity - 1]))) {
-                return &buffer;
+                return {index, &buffer};
             }
+            ++index;
         }
-        return nullptr;
+        return {-1, nullptr};
     }
 
    private:
