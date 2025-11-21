@@ -17,33 +17,39 @@ TEST(StorageTests, BasicAllocateAndAccess) {
     ASSERT_TRUE(handle > 0);
 
     // 只读访问
-    bool read_success = storage.read(handle, [](const int& value) {
-        ASSERT_EQ(value, 42);
-    });
-    ASSERT_TRUE(read_success);
+    {
+        auto accessor = storage.acquire_read(handle);
+        ASSERT_TRUE(accessor.valid());
+        ASSERT_EQ(*accessor, 42);
+    }
 
     // 可写访问
-    bool write_success = storage.write(handle, [](int& value) {
-        value = 100;
-    });
-    ASSERT_TRUE(write_success);
+    {
+        auto accessor = storage.acquire_write(handle);
+        ASSERT_TRUE(accessor.valid());
+        *accessor = 100;
+    }
 
     // 验证修改
-    storage.read(handle, [](const int& value) {
-        ASSERT_EQ(value, 100);
-    });
+    {
+        auto accessor = storage.acquire_read(handle);
+        ASSERT_TRUE(accessor.valid());
+        ASSERT_EQ(*accessor, 100);
+    }
 
     // 释放
     storage.deallocate(handle);
 
     // 验证释放后无法访问
-    bool access_after_free = storage.read(handle, [](const int&) {});
-    ASSERT_FALSE(access_after_free);
+    {
+        auto accessor = storage.acquire_read(handle);
+        ASSERT_FALSE(accessor.valid());
+    }
 }
 
 TEST(StorageTests, MultipleAllocations) {
     Storage<int, 8> storage;
-    std::vector<Storage<int, 8>::Handle> handles;
+    std::vector<Storage<int, 8>::ObjectId> handles;
 
     // 分配多个槽位
     for (int i = 0; i < 8; ++i) {
@@ -54,9 +60,9 @@ TEST(StorageTests, MultipleAllocations) {
 
     // 验证所有值
     for (int i = 0; i < 8; ++i) {
-        storage.read(handles[i], [i](const int& value) {
-            ASSERT_EQ(value, i * 10);
-        });
+        auto accessor = storage.acquire_read(handles[i]);
+        ASSERT_TRUE(accessor.valid());
+        ASSERT_EQ(*accessor, i * 10);
     }
 
     // 释放所有槽位
@@ -67,15 +73,17 @@ TEST(StorageTests, MultipleAllocations) {
     // 验证可以重新分配
     auto recycled = storage.allocate([](int& value) { value = 999; });
     ASSERT_TRUE(recycled > 0);
-    storage.read(recycled, [](const int& value) {
-        ASSERT_EQ(value, 999);
-    });
+    {
+        auto accessor = storage.acquire_read(recycled);
+        ASSERT_TRUE(accessor.valid());
+        ASSERT_EQ(*accessor, 999);
+    }
 }
 
 TEST(StorageTests, AutoExpansion) {
     static constexpr std::size_t initial_capacity = 8;
     Storage<int, initial_capacity> storage;
-    std::vector<Storage<int, initial_capacity>::Handle> handles;
+    std::vector<Storage<int, initial_capacity>::ObjectId> handles;
 
     // 分配超过初始容量的槽位，触发自动扩容
     const std::size_t total_allocations = initial_capacity * 3;
@@ -87,9 +95,9 @@ TEST(StorageTests, AutoExpansion) {
 
     // 验证所有值
     for (std::size_t i = 0; i < total_allocations; ++i) {
-        storage.read(handles[i], [i](const int& value) {
-            ASSERT_EQ(value, static_cast<int>(i));
-        });
+        auto accessor = storage.acquire_read(handles[i]);
+        ASSERT_TRUE(accessor.valid());
+        ASSERT_EQ(*accessor, static_cast<int>(i));
     }
 
     // 释放所有槽位
@@ -100,7 +108,7 @@ TEST(StorageTests, AutoExpansion) {
 
 TEST(StorageTests, ForEachTraversal) {
     Storage<int, 16> storage;
-    std::vector<Storage<int, 16>::Handle> handles;
+    std::vector<Storage<int, 16>::ObjectId> handles;
 
     // 分配一些槽位
     for (int i = 0; i < 10; ++i) {
@@ -158,10 +166,12 @@ TEST(StorageTests, ConcurrentAllocateAndDeallocate) {
                 allocations.fetch_add(1, std::memory_order_relaxed);
 
                 // 验证读取
-                bool read_ok = storage.read(handle, [iteration](const int& value) {
-                    ASSERT_EQ(value, iteration);
-                });
-                ASSERT_TRUE(read_ok);
+                {
+                    auto accessor = storage.acquire_read(handle);
+                    if (accessor) {
+                        ASSERT_EQ(*accessor, iteration);
+                    }
+                }
 
                 // 释放
                 storage.deallocate(handle);
@@ -201,7 +211,7 @@ TEST(StorageTests, MixedConcurrentOperations) {
 
     // 生产者线程：分配、修改、释放
     auto producer = [&]() {
-        std::vector<Storage<int, capacity>::Handle> owned;
+        std::vector<Storage<int, capacity>::ObjectId> owned;
         owned.reserve(capacity / 2);
 
         while (!start.load(std::memory_order_acquire)) {
@@ -216,10 +226,15 @@ TEST(StorageTests, MixedConcurrentOperations) {
 
             if (!owned.empty() && owned.size() > capacity / 4) {
                 const auto& handle = owned.back();
-                bool wrote = storage.write(handle, [&](int& value) {
-                    value += 1;
-                    writes.fetch_add(1, std::memory_order_relaxed);
-                });
+                bool wrote = false;
+                {
+                    auto accessor = storage.acquire_write(handle);
+                    if (accessor) {
+                        *accessor += 1;
+                        writes.fetch_add(1, std::memory_order_relaxed);
+                        wrote = true;
+                    }
+                }
 
                 if (wrote) {
                     storage.deallocate(handle);
@@ -286,9 +301,11 @@ TEST(StorageTests, ExceptionSafety) {
     // 验证可以继续正常分配
     auto handle = storage.allocate([](int& value) { value = 42; });
     ASSERT_TRUE(handle > 0);
-    storage.read(handle, [](const int& value) {
-        ASSERT_EQ(value, 42);
-    });
+    {
+        auto accessor = storage.acquire_read(handle);
+        ASSERT_TRUE(accessor.valid());
+        ASSERT_EQ(*accessor, 42);
+    }
     storage.deallocate(handle);
 
     // write 时抛异常
@@ -297,17 +314,20 @@ TEST(StorageTests, ExceptionSafety) {
 
     exception_caught = false;
     try {
-        storage.write(handle, [](int&) {
+        auto accessor = storage.acquire_write(handle);
+        if (accessor) {
             throw std::runtime_error("Access exception");
-        });
+        }
     } catch (const std::runtime_error&) {
         exception_caught = true;
     }
     ASSERT_TRUE(exception_caught);
 
     // 验证槽位仍可访问（数据可能处于部分修改状态）
-    bool still_accessible = storage.read(handle, [](const int&) {});
-    ASSERT_TRUE(still_accessible);
+    {
+        auto accessor = storage.acquire_read(handle);
+        ASSERT_TRUE(accessor.valid());
+    }
 
     storage.deallocate(handle);
 }
@@ -328,7 +348,7 @@ TEST(StorageTests, ComprehensiveConcurrentOperations) {
 
     // 分配器线程：持续分配新槽位
     auto allocator = [&]() {
-        std::vector<Storage<int, capacity>::Handle> owned;
+        std::vector<Storage<int, capacity>::ObjectId> owned;
         owned.reserve(capacity);
 
         while (!start.load(std::memory_order_acquire)) {
@@ -361,7 +381,7 @@ TEST(StorageTests, ComprehensiveConcurrentOperations) {
 
     // 释放器线程：随机释放现有槽位
     auto deallocator = [&]() {
-        std::vector<Storage<int, capacity>::Handle> to_deallocate;
+        std::vector<Storage<int, capacity>::ObjectId> to_deallocate;
         to_deallocate.reserve(capacity / 4);
 
         while (!start.load(std::memory_order_acquire)) {
@@ -396,7 +416,7 @@ TEST(StorageTests, ComprehensiveConcurrentOperations) {
 
     // 读者线程：随机读取槽位
     auto reader = [&]() {
-        std::vector<Storage<int, capacity>::Handle> cached_handles;
+        std::vector<Storage<int, capacity>::ObjectId> cached_handles;
         cached_handles.reserve(capacity / 4);
 
         while (!start.load(std::memory_order_acquire)) {
@@ -413,11 +433,11 @@ TEST(StorageTests, ComprehensiveConcurrentOperations) {
 
             // 读取这些句柄
             for (const auto& handle : cached_handles) {
-                bool read_ok = storage.read(handle, [&](const int& value) {
-                    (void)value;
+                auto accessor = storage.acquire_read(handle);
+                if (accessor) {
+                    (void)*accessor;
                     reads.fetch_add(1, std::memory_order_relaxed);
-                });
-                (void)read_ok;
+                }
             }
 
             // 释放并清空
@@ -432,7 +452,7 @@ TEST(StorageTests, ComprehensiveConcurrentOperations) {
 
     // 写者线程：随机修改槽位
     auto writer = [&]() {
-        std::vector<Storage<int, capacity>::Handle> cached_handles;
+        std::vector<Storage<int, capacity>::ObjectId> cached_handles;
         cached_handles.reserve(capacity / 4);
 
         while (!start.load(std::memory_order_acquire)) {
@@ -449,11 +469,11 @@ TEST(StorageTests, ComprehensiveConcurrentOperations) {
 
             // 修改这些句柄
             for (const auto& handle : cached_handles) {
-                bool write_ok = storage.write(handle, [&](int& value) {
-                    value += 1;
+                auto accessor = storage.acquire_write(handle);
+                if (accessor) {
+                    *accessor += 1;
                     writes.fetch_add(1, std::memory_order_relaxed);
-                });
-                (void)write_ok;
+                }
             }
 
             // 释放并清空

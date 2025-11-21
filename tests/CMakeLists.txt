@@ -21,10 +21,11 @@ function(corona_add_test TARGET_NAME)
     set(_test_common_header "${CMAKE_CURRENT_SOURCE_DIR}/test_framework.h")
     add_executable(${TARGET_NAME} ${ARGN} ${_test_common_header})
     target_link_libraries(${TARGET_NAME}
-        PRIVATE
-            corona_kernel
-            corona_pal
+    PRIVATE
+    corona_kernel
+    corona_pal
     )
+    corona_copy_tbb_runtime_artifacts(${TARGET_NAME})
     set_target_properties(${TARGET_NAME} PROPERTIES FOLDER "Tests")
 endfunction()
 

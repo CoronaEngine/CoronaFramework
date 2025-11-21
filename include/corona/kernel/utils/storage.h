@@ -77,20 +77,72 @@ class Storage {
     static_assert((BufferCapacity & (BufferCapacity - 1)) == 0, "BufferCapacity must be a power of two");
 
    public:
-    using Handle = std::uintptr_t;  ///< 句柄类型，存储指向槽位的实际内存地址
+    using ObjectId = std::uintptr_t;  ///< 对象 ID 类型，存储槽位的实际内存地址
+
+    /**
+     * @brief 只读访问句柄 (RAII)
+     */
+    class ReadHandle {
+       public:
+        ReadHandle() = default;
+        ReadHandle(const T* ptr, std::shared_lock<std::shared_mutex>&& lock)
+            : ptr_(ptr), lock_(std::move(lock)) {}
+
+        ReadHandle(ReadHandle&&) = default;
+        ReadHandle& operator=(ReadHandle&&) = default;
+        ReadHandle(const ReadHandle&) = delete;
+        ReadHandle& operator=(const ReadHandle&) = delete;
+
+        [[nodiscard]] bool valid() const { return ptr_ != nullptr && lock_.owns_lock(); }
+        explicit operator bool() const { return valid(); }
+
+        const T* get() const { return ptr_; }
+        const T* operator->() const { return ptr_; }
+        const T& operator*() const { return *ptr_; }
+
+       private:
+        const T* ptr_ = nullptr;
+        std::shared_lock<std::shared_mutex> lock_;
+    };
+
+    /**
+     * @brief 读写访问句柄 (RAII)
+     */
+    class WriteHandle {
+       public:
+        WriteHandle() = default;
+        WriteHandle(T* ptr, std::unique_lock<std::shared_mutex>&& lock)
+            : ptr_(ptr), lock_(std::move(lock)) {}
+
+        WriteHandle(WriteHandle&&) = default;
+        WriteHandle& operator=(WriteHandle&&) = default;
+        WriteHandle(const WriteHandle&) = delete;
+        WriteHandle& operator=(const WriteHandle&) = delete;
+
+        [[nodiscard]] bool valid() const { return ptr_ != nullptr && lock_.owns_lock(); }
+        explicit operator bool() const { return valid(); }
+
+        T* get() const { return ptr_; }
+        T* operator->() const { return ptr_; }
+        T& operator*() const { return *ptr_; }
+
+       private:
+        T* ptr_ = nullptr;
+        std::unique_lock<std::shared_mutex> lock_;
+    };
 
    public:
     /**
-     * @brief 构造函数，创建初始 buffer 并预分配所有槽位句柄
+     * @brief 构造函数，创建初始 buffer 并预分配所有槽位 ID
      *
      * @note 创建 InitialBuffers 个 StaticBuffer，每个包含 BufferCapacity 个槽位
-     * @note 将所有槽位的地址作为句柄加入空闲队列
+     * @note 将所有槽位的地址作为 ID 加入空闲队列
      */
     Storage() {
         for (std::size_t i = 0; i < InitialBuffers; ++i) {
             buffers_.emplace_back();
             for (std::size_t j = 0; j < BufferCapacity; ++j) {
-                free_slots_.push(reinterpret_cast<Handle>(&(buffers_.back().buffer[j])));
+                free_slots_.push(reinterpret_cast<ObjectId>(&(buffers_.back().buffer[j])));
             }
         }
     }
@@ -117,10 +169,10 @@ class Storage {
      * @brief 分配一个槽位并初始化
      *
      * @param initializer 初始化函数，签名为 void(T&)，在持有槽位独占锁的情况下调用
-     * @return 成功返回槽位句柄（内存地址），失败返回 0
+     * @return 成功返回槽位 ID（内存地址），失败返回 0
      *
      * @note 分配流程：
-     *       1. 从空闲队列获取槽位句柄
+     *       1. 从空闲队列获取槽位 ID
      *       2. 若队列为空，则扩容（创建新 buffer 并入队所有新槽位）
      *       3. 通过 get_parent_buffer() 查找槽位所属的 StaticBuffer
      *       4. 计算槽位在 buffer 内的索引，加锁后初始化并标记为已占用
@@ -129,14 +181,14 @@ class Storage {
      * @throws std::runtime_error 若无法找到槽位所属的 buffer（理论上不应发生）
      */
     [[nodiscard]]
-    Handle allocate(const std::function<void(T&)>& initializer) {
-        Handle id;
+    ObjectId allocate(const std::function<void(T&)>& initializer) {
+        ObjectId id;
         if (!free_slots_.try_pop(id)) {
             // 扩容
             std::unique_lock lock(list_mutex_);
             buffers_.emplace_back();
             for (std::size_t j = 0; j < BufferCapacity; ++j) {
-                free_slots_.push(reinterpret_cast<Handle>(&(buffers_.back().buffer[j])));
+                free_slots_.push(reinterpret_cast<ObjectId>(&(buffers_.back().buffer[j])));
             }
             buffer_count_.fetch_add(1, std::memory_order_relaxed);
             lock.unlock();
@@ -152,7 +204,7 @@ class Storage {
         StaticBuffer<T, BufferCapacity>* parent_buffer = get_parent_buffer(id);
 
         if (parent_buffer) {
-            std::size_t index = (id - reinterpret_cast<Handle>(&(parent_buffer->buffer[0]))) / sizeof(T);
+            std::size_t index = (id - reinterpret_cast<ObjectId>(&(parent_buffer->buffer[0]))) / sizeof(T);
             {
                 std::unique_lock slot_lock(parent_buffer->mutexes[index]);
                 *ptr = T{};
@@ -170,18 +222,18 @@ class Storage {
     /**
      * @brief 释放指定槽位
      *
-     * @param id 槽位句柄（由 allocate() 返回）
+     * @param id 槽位 ID（由 allocate() 返回）
      *
      * @note 释放流程：
      *       1. 通过 get_parent_buffer() 查找槽位所属的 StaticBuffer
      *       2. 计算槽位在 buffer 内的索引
      *       3. 加独占锁后标记槽位为未占用
-     *       4. 将句柄重新加入空闲队列以供复用
+     *       4. 将 ID 重新加入空闲队列以供复用
      *
      * @note 线程安全，使用独占锁保护槽位状态
-     * @throws std::runtime_error 若无法找到槽位所属的 buffer（可能是无效句柄）
+     * @throws std::runtime_error 若无法找到槽位所属的 buffer（可能是无效 ID）
      */
-    void deallocate(Handle id) {
+    void deallocate(ObjectId id) {
         T* ptr = reinterpret_cast<T*>(id);
         StaticBuffer<T, BufferCapacity>* parent_buffer = get_parent_buffer(id);
 
@@ -199,69 +251,59 @@ class Storage {
     }
 
     /**
-     * @brief 只读访问指定槽位
+     * @brief 获取只读访问句柄
      *
-     * @param id 槽位句柄（由 allocate() 返回）
-     * @param reader 读取函数，签名为 void(const T&)，在持有槽位共享锁的情况下调用
-     * @return 槽位已占用且成功读取返回 true，槽位未占用返回 false
+     * @param id 对象 ID
+     * @return ReadHandle RAII 句柄，若 ID 无效或未占用则 valid() 为 false
      *
      * @note 访问流程：
      *       1. 通过 get_parent_buffer() 查找槽位所属的 StaticBuffer
      *       2. 计算槽位在 buffer 内的索引
-     *       3. 加共享锁后检查占用标志，若已占用则调用 reader
+     *       3. 加共享锁后检查占用标志，若已占用则返回持有锁的 Handle
      *
      * @note 线程安全，使用共享锁允许多个读者并发访问
-     * @throws std::runtime_error 若无法找到槽位所属的 buffer（可能是无效句柄）
      */
-    bool read(Handle id, const std::function<void(const T&)>& reader) {
+    [[nodiscard]]
+    ReadHandle acquire_read(ObjectId id) {
         T* ptr = reinterpret_cast<T*>(id);
         StaticBuffer<T, BufferCapacity>* parent_buffer = get_parent_buffer(id);
 
         if (parent_buffer) {
-            std::size_t index = (id - reinterpret_cast<Handle>(&(parent_buffer->buffer[0]))) / sizeof(T);
+            std::size_t index = (id - reinterpret_cast<ObjectId>(&(parent_buffer->buffer[0]))) / sizeof(T);
             std::shared_lock slot_lock(parent_buffer->mutexes[index]);
             if (parent_buffer->occupied[index].load(std::memory_order_acquire)) {
-                reader(*ptr);
-                return true;
-            } else {
-                return false;  // 槽位未被占用
+                return ReadHandle(ptr, std::move(slot_lock));
             }
-        } else {
-            throw std::runtime_error("Parent buffer not found during read");
         }
+        return ReadHandle();
     }
 
     /**
-     * @brief 可写访问指定槽位
+     * @brief 获取读写访问句柄
      *
-     * @param id 槽位句柄（由 allocate() 返回）
-     * @param writer 写入函数，签名为 void(T&)，在持有槽位独占锁的情况下调用
-     * @return 槽位已占用且成功写入返回 true，槽位未占用返回 false
+     * @param id 对象 ID
+     * @return WriteHandle RAII 句柄，若 ID 无效或未占用则 valid() 为 false
      *
      * @note 访问流程：
      *       1. 通过 get_parent_buffer() 查找槽位所属的 StaticBuffer
      *       2. 计算槽位在 buffer 内的索引
-     *       3. 加独占锁后检查占用标志，若已占用则调用 writer
+     *       3. 加独占锁后检查占用标志，若已占用则返回持有锁的 Handle
      *
      * @note 线程安全，使用独占锁确保独占写入
-     * @throws std::runtime_error 若无法找到槽位所属的 buffer（可能是无效句柄）
      */
-    bool write(Handle id, const std::function<void(T&)>& writer) {
+    [[nodiscard]]
+    WriteHandle acquire_write(ObjectId id) {
         T* ptr = reinterpret_cast<T*>(id);
         StaticBuffer<T, BufferCapacity>* parent_buffer = get_parent_buffer(id);
 
         if (parent_buffer) {
-            std::size_t index = (id - reinterpret_cast<Handle>(&(parent_buffer->buffer[0]))) / sizeof(T);
+            std::size_t index = (id - reinterpret_cast<ObjectId>(&(parent_buffer->buffer[0]))) / sizeof(T);
             std::unique_lock slot_lock(parent_buffer->mutexes[index]);
             if (parent_buffer->occupied[index].load(std::memory_order_acquire)) {
-                writer(*ptr);
-                return true;
-            } else {
-                return false;  // 槽位未被占用
+                return WriteHandle(ptr, std::move(slot_lock));
             }
-        } else {
-            throw std::runtime_error("Parent buffer not found during write");
         }
+        return WriteHandle();
     }
 
     /**
@@ -280,8 +322,8 @@ class Storage {
      */
     void for_each_read(const std::function<void(const T&)>& reader) {
         std::shared_lock list_lock(list_mutex_);
-        std::queue<Handle> skipped_elements;
-        std::queue<Handle> skipped_locks;
+        std::queue<ObjectId> skipped_elements;
+        std::queue<ObjectId> skipped_locks;
         for (auto& buffer : buffers_) {
             for (std::size_t i = 0; i < BufferCapacity; ++i) {
                 if (buffer.occupied[i].load(std::memory_order_acquire)) {
@@ -289,8 +331,8 @@ class Storage {
                         reader(buffer.buffer[i]);
                         buffer.mutexes[i].unlock_shared();
                     } else {
-                        skipped_elements.push(reinterpret_cast<Handle>(&(buffer.buffer[i])));
-                        skipped_locks.push(reinterpret_cast<Handle>(&(buffer.mutexes[i])));
+                        skipped_elements.push(reinterpret_cast<ObjectId>(&(buffer.buffer[i])));
+                        skipped_locks.push(reinterpret_cast<ObjectId>(&(buffer.mutexes[i])));
                     }
                 }
             }
@@ -299,8 +341,8 @@ class Storage {
         list_lock.unlock();
         // 处理跳过的槽位
         while (!skipped_elements.empty()) {
-            Handle elem_id = skipped_elements.front();
-            Handle lock_id = skipped_locks.front();
+            ObjectId elem_id = skipped_elements.front();
+            ObjectId lock_id = skipped_locks.front();
             skipped_elements.pop();
             skipped_locks.pop();
 
@@ -333,8 +375,8 @@ class Storage {
      */
     void for_each_write(const std::function<void(T&)>& writer) {
         std::shared_lock list_lock(list_mutex_);
-        std::queue<Handle> skipped_elements;
-        std::queue<Handle> skipped_locks;
+        std::queue<ObjectId> skipped_elements;
+        std::queue<ObjectId> skipped_locks;
         for (auto& buffer : buffers_) {
             for (std::size_t i = 0; i < BufferCapacity; ++i) {
                 if (buffer.occupied[i].load(std::memory_order_acquire)) {
@@ -342,8 +384,8 @@ class Storage {
                         writer(buffer.buffer[i]);
                         buffer.mutexes[i].unlock();
                     } else {
-                        skipped_elements.push(reinterpret_cast<Handle>(&(buffer.buffer[i])));
-                        skipped_locks.push(reinterpret_cast<Handle>(&(buffer.mutexes[i])));
+                        skipped_elements.push(reinterpret_cast<ObjectId>(&(buffer.buffer[i])));
+                        skipped_locks.push(reinterpret_cast<ObjectId>(&(buffer.mutexes[i])));
                     }
                 }
             }
@@ -352,8 +394,8 @@ class Storage {
         list_lock.unlock();
         // 处理跳过的槽位
         while (!skipped_elements.empty()) {
-            Handle elem_id = skipped_elements.front();
-            Handle lock_id = skipped_locks.front();
+            ObjectId elem_id = skipped_elements.front();
+            ObjectId lock_id = skipped_locks.front();
             skipped_elements.pop();
             skipped_locks.pop();
 
@@ -380,9 +422,9 @@ class Storage {
 
    private:
     /**
-     * @brief 根据槽位句柄查找其所属的 StaticBuffer
+     * @brief 根据槽位 ID 查找其所属的 StaticBuffer
      *
-     * @param id 槽位句柄（内存地址）
+     * @param id 槽位 ID（内存地址）
      * @return 找到则返回 StaticBuffer 指针，否则返回 nullptr
      *
      * @note 查找逻辑：
@@ -393,11 +435,11 @@ class Storage {
      * @note 线程安全，使用共享锁保护 buffer 列表
      */
     [[nodiscard]]
-    StaticBuffer<T, BufferCapacity>* get_parent_buffer(Handle id) {
+    StaticBuffer<T, BufferCapacity>* get_parent_buffer(ObjectId id) {
         std::shared_lock lock(list_mutex_);
         for (auto& buffer : buffers_) {
-            if (id >= reinterpret_cast<Handle>(&(buffer.buffer[0])) &&
-                id <= reinterpret_cast<Handle>(&(buffer.buffer[BufferCapacity - 1]))) {
+            if (id >= reinterpret_cast<ObjectId>(&(buffer.buffer[0])) &&
+                id <= reinterpret_cast<ObjectId>(&(buffer.buffer[BufferCapacity - 1]))) {
                 return &buffer;
             }
         }
@@ -407,7 +449,7 @@ class Storage {
    private:
     std::atomic<std::size_t> occupied_count_{0};             ///< 已占用槽位计数
     std::shared_mutex list_mutex_;                           ///< 保护 buffers_ 列表的锁
-    tbb::concurrent_queue<Handle> free_slots_;               ///< 空闲槽位的无锁队列
+    tbb::concurrent_queue<ObjectId> free_slots_;             ///< 空闲槽位的无锁队列
     std::list<StaticBuffer<T, BufferCapacity>> buffers_;     ///< 底层 buffer 列表
     std::atomic<std::size_t> buffer_count_{InitialBuffers};  ///< 当前 buffer 数量
 };

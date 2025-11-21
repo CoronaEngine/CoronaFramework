@@ -76,34 +76,40 @@ void example_basic_usage() {
 
     // Read entity
     std::cout << "\nReading entity data:" << std::endl;
-    entity_storage.read(handle1, [](const GameEntity& entity) {
+    if (auto accessor = entity_storage.acquire_read(handle1)) {
+        const auto& entity = *accessor;
         std::cout << "  ID: " << entity.id << ", Name: " << entity.name
                   << ", Pos: (" << entity.x << ", " << entity.y << ")"
                   << ", Health: " << entity.health << std::endl;
-    });
+    }
 
     // Modify entity
-    entity_storage.write(handle1, [](GameEntity& entity) {
+    if (auto accessor = entity_storage.acquire_write(handle1)) {
+        auto& entity = *accessor;
         entity.x += 10.0f;
         entity.y += 20.0f;
         entity.health -= 10;
-    });
+    }
 
     std::cout << "\nAfter modification:" << std::endl;
-    entity_storage.read(handle1, [](const GameEntity& entity) {
+    if (auto accessor = entity_storage.acquire_read(handle1)) {
+        const auto& entity = *accessor;
         std::cout << "  ID: " << entity.id << ", Name: " << entity.name
                   << ", Pos: (" << entity.x << ", " << entity.y << ")"
                   << ", Health: " << entity.health << std::endl;
-    });
+    }
 
     // Deallocate entity
     entity_storage.deallocate(handle1);
+
     std::cout << "\nCount after deallocation: " << entity_storage.count() << std::endl;
 
     // Try reading deallocated entity
-    bool success = entity_storage.read(handle1, [](const GameEntity& entity) {
+    bool success = false;
+    if (auto accessor = entity_storage.acquire_read(handle1)) {
         std::cout << "  Data read" << std::endl;
-    });
+        success = true;
+    }
     std::cout << "Attempt to read deallocated entity: " << (success ? "Success" : "Failed (expected)") << std::endl;
 }
 
@@ -120,7 +126,7 @@ void example_dynamic_expansion() {
     std::cout << "Initial capacity: " << player_storage.capacity() << std::endl;
 
     // Allocate more objects than initial capacity, triggering expansion
-    std::vector<Storage<Player, 4, 1>::Handle> handles;
+    std::vector<Storage<Player, 4, 1>::ObjectId> handles;
     for (int i = 0; i < 10; ++i) {
         auto handle = player_storage.allocate([i](Player& player) {
             player.player_id = i + 1;
@@ -151,7 +157,7 @@ void example_iteration() {
     Storage<GameEntity, 8, 1> entity_storage;
 
     // Create multiple entities
-    std::vector<Storage<GameEntity, 8, 1>::Handle> handles;
+    std::vector<Storage<GameEntity, 8, 1>::ObjectId> handles;
     for (int i = 0; i < 5; ++i) {
         auto handle = entity_storage.allocate([i](GameEntity& entity) {
             entity.id = i + 1;
@@ -211,7 +217,7 @@ void example_multithreading() {
     Storage<Player, 16, 1> player_storage;
 
     // Pre-allocate some players
-    std::vector<Storage<Player, 16, 1>::Handle> handles;
+    std::vector<Storage<Player, 16, 1>::ObjectId> handles;
     for (int i = 0; i < 10; ++i) {
         auto handle = player_storage.allocate([i](Player& player) {
             player.player_id = i + 1;
@@ -236,14 +242,15 @@ void example_multithreading() {
             auto handle = handles[player_index];
 
             // Update experience and score
-            player_storage.write(handle, [thread_id, i](Player& player) {
+            if (auto accessor = player_storage.acquire_write(handle)) {
+                auto& player = *accessor;
                 player.experience += 10;
                 player.score += 5;
                 if (player.experience >= 100) {
                     player.level++;
                     player.experience = 0;
                 }
-            });
+            }
 
             // Brief sleep to simulate real work
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -298,7 +305,7 @@ void example_entity_manager() {
     });
 
     // Create enemies
-    std::vector<Storage<GameEntity, 32, 1>::Handle> enemies;
+    std::vector<Storage<GameEntity, 32, 1>::ObjectId> enemies;
     for (int i = 0; i < 5; ++i) {
         auto enemy = entities.allocate([i](GameEntity& e) {
             e.id = 100 + i;
@@ -319,10 +326,11 @@ void example_entity_manager() {
         std::cout << "\n--- Frame " << frame << " ---" << std::endl;
 
         // Move player
-        entities.write(player, [frame](GameEntity& e) {
+        if (auto accessor = entities.acquire_write(player)) {
+            auto& e = *accessor;
             e.x += 10.0f;
             e.y += 5.0f;
-        });
+        }
 
         // Update all enemies
         entities.for_each_write([frame](GameEntity& e) {
@@ -349,18 +357,19 @@ void example_entity_manager() {
         std::cout << "Remaining enemies: " << alive_count << std::endl;
 
         // Display player position
-        entities.read(player, [](const GameEntity& e) {
+        if (auto accessor = entities.acquire_read(player)) {
+            const auto& e = *accessor;
             std::cout << "Player position: (" << e.x << ", " << e.y << ")" << std::endl;
-        });
+        }
     }
 
     // Clean up dead enemies
     std::cout << "\nCleaning up dead enemies..." << std::endl;
     for (auto enemy_handle : enemies) {
         bool is_dead = true;
-        entities.read(enemy_handle, [&is_dead](const GameEntity& e) {
-            is_dead = !e.active;
-        });
+        if (auto accessor = entities.acquire_read(enemy_handle)) {
+            is_dead = !accessor->active;
+        }
         if (is_dead) {
             entities.deallocate(enemy_handle);
         }
