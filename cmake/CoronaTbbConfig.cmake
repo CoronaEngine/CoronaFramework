@@ -63,12 +63,10 @@ function(_corona_collect_tbb_redist_artifacts)
 
     _corona_collect_files_with_ext(CORONA_TBB_REDIS_DLLS dll ${_candidate_dirs})
     _corona_collect_files_with_ext(CORONA_TBB_REDIS_PDBS pdb ${_candidate_dirs})
-    _corona_collect_files_with_ext(CORONA_TBB_REDIS_DEFS def ${_candidate_dirs})
 
     set(CORONA_TBB_REDIS_DLLS "${CORONA_TBB_REDIS_DLLS}" CACHE STRING "Collected TBB redist DLLs" FORCE)
     set(CORONA_TBB_REDIS_PDBS "${CORONA_TBB_REDIS_PDBS}" CACHE STRING "Collected TBB redist PDBs" FORCE)
-    set(CORONA_TBB_REDIS_DEFS "${CORONA_TBB_REDIS_DEFS}" CACHE STRING "Collected TBB redist DEFs" FORCE)
-    mark_as_advanced(CORONA_TBB_REDIS_DLLS CORONA_TBB_REDIS_PDBS CORONA_TBB_REDIS_DEFS)
+    mark_as_advanced(CORONA_TBB_REDIS_DLLS CORONA_TBB_REDIS_PDBS)
 endfunction()
 
 function(corona_copy_tbb_runtime_artifacts target_name)
