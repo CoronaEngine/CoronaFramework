@@ -176,26 +176,26 @@ void example_iteration() {
 
     // Read-only iteration - Print all active entities
     std::cout << "\nActive entities:" << std::endl;
-    entity_storage.for_each_read([](const GameEntity& entity) {
+    for (const auto& entity : entity_storage) {
         if (entity.active) {
             std::cout << "  [" << entity.id << "] " << entity.name
                       << " - Health: " << entity.health << std::endl;
         }
-    });
+    }
 
     // Write iteration - Update all entity positions
     std::cout << "\nUpdating all entity positions..." << std::endl;
-    entity_storage.for_each_write([](GameEntity& entity) {
+    for (auto& entity : entity_storage) {
         entity.x += 5.0f;
         entity.y += 5.0f;
-    });
+    }
 
     // Verify updates
     std::cout << "\nUpdated entity positions:" << std::endl;
-    entity_storage.for_each_read([](const GameEntity& entity) {
+    for (const auto& entity : entity_storage) {
         std::cout << "  [" << entity.id << "] Pos: ("
                   << entity.x << ", " << entity.y << ")" << std::endl;
-    });
+    }
 
     // Deallocate some entities
     entity_storage.deallocate(handles[1]);
@@ -204,10 +204,10 @@ void example_iteration() {
     // Iterate again (skipping deallocated ones)
     std::cout << "\nIteration after deallocating some entities:" << std::endl;
     int count = 0;
-    entity_storage.for_each_read([&count](const GameEntity& entity) {
+    for (const auto& entity : entity_storage) {
         count++;
         std::cout << "  [" << entity.id << "] " << entity.name << std::endl;
-    });
+    }
     std::cout << "Actual iteration count: " << count << " (expected 3)" << std::endl;
 }
 
@@ -280,12 +280,12 @@ void example_multithreading() {
 
     // Display final results
     std::cout << "\nFinal player data:" << std::endl;
-    player_storage.for_each_read([](const Player& player) {
+    for (const auto& player : player_storage) {
         std::cout << "  [" << player.player_id << "] " << player.username
                   << " - Level: " << player.level
                   << ", Exp: " << player.experience
                   << ", Score: " << player.score << std::endl;
-    });
+    }
 }
 
 // ========================================
@@ -340,7 +340,7 @@ void example_entity_manager() {
         }
 
         // Update all enemies
-        entities.for_each_write([frame](GameEntity& e) {
+        for (auto& e : entities) {
             if (e.id >= 100 && e.active) {  // Enemy
                 e.x -= 2.0f;                // Move towards player
                 // Simulate taking damage
@@ -351,15 +351,15 @@ void example_entity_manager() {
                     }
                 }
             }
-        });
+        }
 
         // Count active enemies
         int alive_count = 0;
-        entities.for_each_read([&alive_count](const GameEntity& e) {
+        for (const auto& e : entities) {
             if (e.id >= 100 && e.active) {
                 alive_count++;
             }
-        });
+        }
 
         std::cout << "Remaining enemies: " << alive_count << std::endl;
 

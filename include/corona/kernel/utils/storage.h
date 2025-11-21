@@ -6,12 +6,12 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <list>
 #include <mutex>
 #include <queue>
 #include <shared_mutex>
 #include <stdexcept>
+#include <utility>
 
 namespace Corona::Kernel::Utils {
 
@@ -45,9 +45,9 @@ struct StaticBuffer {
 
     ~StaticBuffer() = default;
 
-    std::array<T, Capacity> buffer{};                    ///< 数据存储数组
-    std::array<std::atomic<bool>, Capacity> occupied{};  ///< 槽位占用标志，原子操作确保可见性
-    std::array<std::shared_mutex, Capacity> mutexes{};   ///< 每个槽位的独立共享锁
+    std::array<T, Capacity> buffer{};                           ///< 数据存储数组
+    std::array<std::atomic<bool>, Capacity> occupied{};         ///< 槽位占用标志，原子操作确保可见性
+    mutable std::array<std::shared_mutex, Capacity> mutexes{};  ///< 每个槽位的独立共享锁
 };
 
 /**
@@ -305,110 +305,195 @@ class Storage {
     }
 
     /**
-     * @brief 只读遍历所有已占用槽位
-     *
-     * @param reader 读取函数，签名为 void(const T&)，对每个已占用槽位调用一次
-     *
-     * @note 遍历流程：
-     *       1. 加 buffer 列表共享锁，遍历所有 buffer 的所有槽位
-     *       2. 对每个已占用槽位尝试 try_lock_shared，成功则立即调用 reader
-     *       3. 锁定失败的槽位记录到跳过队列，稍后重试
-     *       4. 释放列表锁后，循环处理跳过队列中的槽位，直到全部处理完毕
-     *
-     * @note 线程安全，使用 try_lock 避免死锁，确保最终所有槽位都被访问
-     * @note 遍历期间新分配的槽位可能被观察到，已释放的槽位会被跳过
+     * @brief 线程安全的迭代器 (Input Iterator)
      */
-    void for_each_read(const std::function<void(const T&)>& reader) {
-        std::shared_lock list_lock(list_mutex_);
-        std::queue<ObjectId> skipped_elements;
-        std::queue<ObjectId> skipped_locks;
-        for (auto& buffer : buffers_) {
-            for (std::size_t i = 0; i < BufferCapacity; ++i) {
-                if (buffer.occupied[i].load(std::memory_order_acquire)) {
-                    if (buffer.mutexes[i].try_lock_shared()) {
-                        reader(buffer.buffer[i]);
-                        buffer.mutexes[i].unlock_shared();
-                    } else {
-                        skipped_elements.push(reinterpret_cast<ObjectId>(&(buffer.buffer[i])));
-                        skipped_locks.push(reinterpret_cast<ObjectId>(&(buffer.mutexes[i])));
+    class Iterator {
+       public:
+        using iterator_category = std::input_iterator_tag;
+        using value_type = T;
+        using difference_type = std::ptrdiff_t;
+        using pointer = T*;
+        using reference = T&;
+
+        Iterator() = default;
+        Iterator(Storage* storage, bool is_end) : storage_(storage), is_end_(is_end) {
+            if (!is_end_ && storage_) {
+                std::shared_lock lock(storage_->list_mutex_);
+                buffer_it_ = storage_->buffers_.begin();
+                if (buffer_it_ == storage_->buffers_.end()) {
+                    is_end_ = true;
+                } else {
+                    lock.unlock();
+                    advance();
+                }
+            }
+        }
+
+        Iterator(Iterator&&) = default;
+        Iterator& operator=(Iterator&&) = default;
+
+        T& operator*() { return *handle_; }
+        T* operator->() { return handle_.get(); }
+
+        Iterator& operator++() {
+            handle_ = WriteHandle();
+            advance();
+            return *this;
+        }
+
+        bool operator!=(const Iterator& other) const { return is_end_ != other.is_end_; }
+        bool operator==(const Iterator& other) const { return is_end_ == other.is_end_; }
+
+       private:
+        void advance() {
+            while (true) {
+                if (!retry_mode_) {
+                    if (slot_index_ >= BufferCapacity) {
+                        std::shared_lock lock(storage_->list_mutex_);
+                        ++buffer_it_;
+                        slot_index_ = 0;
+                        if (buffer_it_ == storage_->buffers_.end()) {
+                            retry_mode_ = true;
+                            continue;
+                        }
+                    }
+
+                    auto& buffer = *buffer_it_;
+                    if (buffer.occupied[slot_index_].load(std::memory_order_acquire)) {
+                        std::unique_lock slot_lock(buffer.mutexes[slot_index_], std::try_to_lock);
+                        if (slot_lock.owns_lock()) {
+                            handle_ = WriteHandle(&buffer.buffer[slot_index_], std::move(slot_lock));
+                            slot_index_++;
+                            return;
+                        } else {
+                            skipped_items_.push({&buffer, slot_index_});
+                        }
+                    }
+                    slot_index_++;
+                } else {
+                    if (skipped_items_.empty()) {
+                        is_end_ = true;
+                        return;
+                    }
+                    auto [buffer, index] = skipped_items_.front();
+                    skipped_items_.pop();
+
+                    std::unique_lock slot_lock(buffer->mutexes[index]);
+                    if (buffer->occupied[index].load(std::memory_order_acquire)) {
+                        handle_ = WriteHandle(&buffer->buffer[index], std::move(slot_lock));
+                        return;
                     }
                 }
             }
         }
 
-        list_lock.unlock();
-        // 处理跳过的槽位
-        while (!skipped_elements.empty()) {
-            ObjectId elem_id = skipped_elements.front();
-            ObjectId lock_id = skipped_locks.front();
-            skipped_elements.pop();
-            skipped_locks.pop();
-
-            T* ptr = reinterpret_cast<T*>(elem_id);
-            std::shared_mutex* mutex_ptr = reinterpret_cast<std::shared_mutex*>(lock_id);
-
-            if (mutex_ptr->try_lock_shared()) {
-                reader(*ptr);
-                mutex_ptr->unlock_shared();
-            } else {
-                skipped_elements.push(elem_id);
-                skipped_locks.push(lock_id);
-            }
-        }
-    }
+        Storage* storage_ = nullptr;
+        typename std::list<StaticBuffer<T, BufferCapacity>>::iterator buffer_it_;
+        std::size_t slot_index_ = 0;
+        std::queue<std::pair<StaticBuffer<T, BufferCapacity>*, std::size_t>> skipped_items_;
+        WriteHandle handle_;
+        bool is_end_ = true;
+        bool retry_mode_ = false;
+    };
 
     /**
-     * @brief 可写遍历所有已占用槽位
-     *
-     * @param writer 写入函数，签名为 void(T&)，对每个已占用槽位调用一次
-     *
-     * @note 遍历流程：
-     *       1. 加 buffer 列表共享锁，遍历所有 buffer 的所有槽位
-     *       2. 对每个已占用槽位尝试 try_lock，成功则立即调用 writer
-     *       3. 锁定失败的槽位记录到跳过队列，稍后重试
-     *       4. 释放列表锁后，循环处理跳过队列中的槽位，直到全部处理完毕
-     *
-     * @note 线程安全，使用 try_lock 避免死锁，确保最终所有槽位都被访问
-     * @note 遍历期间新分配的槽位可能被观察到，已释放的槽位会被跳过
+     * @brief 线程安全的只读迭代器 (Input Iterator)
      */
-    void for_each_write(const std::function<void(T&)>& writer) {
-        std::shared_lock list_lock(list_mutex_);
-        std::queue<ObjectId> skipped_elements;
-        std::queue<ObjectId> skipped_locks;
-        for (auto& buffer : buffers_) {
-            for (std::size_t i = 0; i < BufferCapacity; ++i) {
-                if (buffer.occupied[i].load(std::memory_order_acquire)) {
-                    if (buffer.mutexes[i].try_lock()) {
-                        writer(buffer.buffer[i]);
-                        buffer.mutexes[i].unlock();
-                    } else {
-                        skipped_elements.push(reinterpret_cast<ObjectId>(&(buffer.buffer[i])));
-                        skipped_locks.push(reinterpret_cast<ObjectId>(&(buffer.mutexes[i])));
+    class ConstIterator {
+       public:
+        using iterator_category = std::input_iterator_tag;
+        using value_type = const T;
+        using difference_type = std::ptrdiff_t;
+        using pointer = const T*;
+        using reference = const T&;
+
+        ConstIterator() = default;
+        ConstIterator(const Storage* storage, bool is_end) : storage_(storage), is_end_(is_end) {
+            if (!is_end_ && storage_) {
+                std::shared_lock lock(storage_->list_mutex_);
+                buffer_it_ = storage_->buffers_.begin();
+                if (buffer_it_ == storage_->buffers_.end()) {
+                    is_end_ = true;
+                } else {
+                    lock.unlock();
+                    advance();
+                }
+            }
+        }
+
+        ConstIterator(ConstIterator&&) = default;
+        ConstIterator& operator=(ConstIterator&&) = default;
+
+        const T& operator*() const { return *handle_; }
+        const T* operator->() const { return handle_.get(); }
+
+        ConstIterator& operator++() {
+            handle_ = ReadHandle();
+            advance();
+            return *this;
+        }
+
+        bool operator!=(const ConstIterator& other) const { return is_end_ != other.is_end_; }
+        bool operator==(const ConstIterator& other) const { return is_end_ == other.is_end_; }
+
+       private:
+        void advance() {
+            while (true) {
+                if (!retry_mode_) {
+                    if (slot_index_ >= BufferCapacity) {
+                        std::shared_lock lock(storage_->list_mutex_);
+                        ++buffer_it_;
+                        slot_index_ = 0;
+                        if (buffer_it_ == storage_->buffers_.end()) {
+                            retry_mode_ = true;
+                            continue;
+                        }
+                    }
+
+                    auto& buffer = *buffer_it_;
+                    if (buffer.occupied[slot_index_].load(std::memory_order_acquire)) {
+                        std::shared_lock slot_lock(buffer.mutexes[slot_index_], std::try_to_lock);
+                        if (slot_lock.owns_lock()) {
+                            handle_ = ReadHandle(&buffer.buffer[slot_index_], std::move(slot_lock));
+                            slot_index_++;
+                            return;
+                        } else {
+                            skipped_items_.push({&buffer, slot_index_});
+                        }
+                    }
+                    slot_index_++;
+                } else {
+                    if (skipped_items_.empty()) {
+                        is_end_ = true;
+                        return;
+                    }
+                    auto [buffer, index] = skipped_items_.front();
+                    skipped_items_.pop();
+
+                    std::shared_lock slot_lock(buffer->mutexes[index]);
+                    if (buffer->occupied[index].load(std::memory_order_acquire)) {
+                        handle_ = ReadHandle(&buffer->buffer[index], std::move(slot_lock));
+                        return;
                     }
                 }
             }
         }
 
-        list_lock.unlock();
-        // 处理跳过的槽位
-        while (!skipped_elements.empty()) {
-            ObjectId elem_id = skipped_elements.front();
-            ObjectId lock_id = skipped_locks.front();
-            skipped_elements.pop();
-            skipped_locks.pop();
+        const Storage* storage_ = nullptr;
+        typename std::list<StaticBuffer<T, BufferCapacity>>::const_iterator buffer_it_;
+        std::size_t slot_index_ = 0;
+        std::queue<std::pair<const StaticBuffer<T, BufferCapacity>*, std::size_t>> skipped_items_;
+        ReadHandle handle_;
+        bool is_end_ = true;
+        bool retry_mode_ = false;
+    };
 
-            T* ptr = reinterpret_cast<T*>(elem_id);
-            std::shared_mutex* mutex_ptr = reinterpret_cast<std::shared_mutex*>(lock_id);
-
-            if (mutex_ptr->try_lock()) {
-                writer(*ptr);
-                mutex_ptr->unlock();
-            } else {
-                skipped_elements.push(elem_id);
-                skipped_locks.push(lock_id);
-            }
-        }
-    }
+    Iterator begin() { return Iterator(this, false); }
+    Iterator end() { return Iterator(this, true); }
+    ConstIterator begin() const { return ConstIterator(this, false); }
+    ConstIterator end() const { return ConstIterator(this, true); }
+    ConstIterator cbegin() const { return ConstIterator(this, false); }
+    ConstIterator cend() const { return ConstIterator(this, true); }
 
     std::size_t count() const {
         return occupied_count_.load(std::memory_order_relaxed);

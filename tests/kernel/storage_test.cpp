@@ -140,22 +140,24 @@ TEST(StorageTests, ForEachTraversal) {
     // 只读遍历并统计
     int sum = 0;
     int count = 0;
-    storage.for_each_read([&](const int& value) {
+    for (const auto& value : storage) {
         sum += value;
         ++count;
-    });
+    }
 
     ASSERT_EQ(count, 10);
     ASSERT_EQ(sum, 55);  // 1+2+...+10 = 55
 
     // 可写遍历，所有值乘以2
-    storage.for_each_write([](int& value) { value *= 2; });
+    for (auto& value : storage) {
+        value *= 2;
+    }
 
     // 验证修改
     sum = 0;
-    storage.for_each_read([&](const int& value) {
+    for (const auto& value : storage) {
         sum += value;
-    });
+    }
     ASSERT_EQ(sum, 110);  // 2*(1+2+...+10) = 110
 
     // 清理
@@ -220,7 +222,7 @@ TEST(StorageTests, ConcurrentAllocateAndDeallocate) {
 }
 
 TEST(StorageTests, MixedConcurrentOperations) {
-    static constexpr std::size_t capacity = 64;
+    static constexpr std::size_t capacity = 128;
     Storage<int, capacity> storage;
 
     std::atomic<bool> start{false};
@@ -284,16 +286,20 @@ TEST(StorageTests, MixedConcurrentOperations) {
         }
 
         while (!stop.load(std::memory_order_relaxed)) {
-            storage.for_each_read([&](const int& value) {
+            for (const auto& value : storage) {
                 ASSERT_GE(value, 0);
                 reads.fetch_add(1, std::memory_order_relaxed);
-            });
+            }
             std::this_thread::yield();
         }
     };
 
     threads.emplace_back(producer);
     threads.emplace_back(producer);
+    threads.emplace_back(producer);
+    threads.emplace_back(producer);
+    threads.emplace_back(reader);
+    threads.emplace_back(reader);
     threads.emplace_back(reader);
     threads.emplace_back(reader);
 
@@ -660,9 +666,9 @@ TEST(StorageTests, ForEachWithConcurrentModifications) {
         }
 
         while (!stop.load(std::memory_order_relaxed)) {
-            storage.for_each_read([](const int& value) {
+            for (const auto& value : storage) {
                 (void)value;
-            });
+            }
             iterations.fetch_add(1, std::memory_order_relaxed);
             std::this_thread::yield();
         }
@@ -1020,14 +1026,14 @@ TEST(StorageTests, ComprehensiveConcurrentOperations) {
 
         while (!stop.load(std::memory_order_relaxed)) {
             // 只读遍历
-            storage.for_each_read([&](const int& value) {
+            for (const auto& value : storage) {
                 (void)value;
-            });
+            }
 
             // 可写遍历
-            storage.for_each_write([&](int& value) {
+            for (auto& value : storage) {
                 value = (value + 1) % 1000;
-            });
+            }
 
             iterations.fetch_add(1, std::memory_order_relaxed);
             std::this_thread::yield();
