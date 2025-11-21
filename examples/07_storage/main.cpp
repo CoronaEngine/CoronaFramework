@@ -56,21 +56,23 @@ void example_basic_usage() {
     std::cout << "Initial count: " << entity_storage.count() << std::endl;
 
     // Allocate entities
-    auto handle1 = entity_storage.allocate([](GameEntity& entity) {
-        entity.id = 1;
-        entity.name = "Player";
-        entity.x = 100.0f;
-        entity.y = 200.0f;
-        entity.health = 100;
-    });
+    auto handle1 = entity_storage.allocate();
+    if (auto accessor = entity_storage.acquire_write(handle1)) {
+        accessor->id = 1;
+        accessor->name = "Player";
+        accessor->x = 100.0f;
+        accessor->y = 200.0f;
+        accessor->health = 100;
+    }
 
-    auto handle2 = entity_storage.allocate([](GameEntity& entity) {
-        entity.id = 2;
-        entity.name = "Enemy";
-        entity.x = 300.0f;
-        entity.y = 400.0f;
-        entity.health = 50;
-    });
+    auto handle2 = entity_storage.allocate();
+    if (auto accessor = entity_storage.acquire_write(handle2)) {
+        accessor->id = 2;
+        accessor->name = "Enemy";
+        accessor->x = 300.0f;
+        accessor->y = 400.0f;
+        accessor->health = 50;
+    }
 
     std::cout << "Count after allocation: " << entity_storage.count() << std::endl;
 
@@ -128,13 +130,14 @@ void example_dynamic_expansion() {
     // Allocate more objects than initial capacity, triggering expansion
     std::vector<Storage<Player, 4, 1>::ObjectId> handles;
     for (int i = 0; i < 10; ++i) {
-        auto handle = player_storage.allocate([i](Player& player) {
-            player.player_id = i + 1;
-            player.username = "Player_" + std::to_string(i + 1);
-            player.level = (i % 5) + 1;
-            player.experience = i * 100;
-            player.score = i * 50;
-        });
+        auto handle = player_storage.allocate();
+        if (auto accessor = player_storage.acquire_write(handle)) {
+            accessor->player_id = i + 1;
+            accessor->username = "Player_" + std::to_string(i + 1);
+            accessor->level = (i % 5) + 1;
+            accessor->experience = i * 100;
+            accessor->score = i * 50;
+        }
         handles.push_back(handle);
 
         if (i == 3 || i == 7) {
@@ -159,14 +162,15 @@ void example_iteration() {
     // Create multiple entities
     std::vector<Storage<GameEntity, 8, 1>::ObjectId> handles;
     for (int i = 0; i < 5; ++i) {
-        auto handle = entity_storage.allocate([i](GameEntity& entity) {
-            entity.id = i + 1;
-            entity.name = "Entity_" + std::to_string(i + 1);
-            entity.x = static_cast<float>(i * 10);
-            entity.y = static_cast<float>(i * 20);
-            entity.health = 100 - i * 10;
-            entity.active = (i % 2 == 0);
-        });
+        auto handle = entity_storage.allocate();
+        if (auto accessor = entity_storage.acquire_write(handle)) {
+            accessor->id = i + 1;
+            accessor->name = "Entity_" + std::to_string(i + 1);
+            accessor->x = static_cast<float>(i * 10);
+            accessor->y = static_cast<float>(i * 20);
+            accessor->health = 100 - i * 10;
+            accessor->active = (i % 2 == 0);
+        }
         handles.push_back(handle);
     }
 
@@ -219,13 +223,14 @@ void example_multithreading() {
     // Pre-allocate some players
     std::vector<Storage<Player, 16, 1>::ObjectId> handles;
     for (int i = 0; i < 10; ++i) {
-        auto handle = player_storage.allocate([i](Player& player) {
-            player.player_id = i + 1;
-            player.username = "Player_" + std::to_string(i + 1);
-            player.level = 1;
-            player.experience = 0;
-            player.score = 0;
-        });
+        auto handle = player_storage.allocate();
+        if (auto accessor = player_storage.acquire_write(handle)) {
+            accessor->player_id = i + 1;
+            accessor->username = "Player_" + std::to_string(i + 1);
+            accessor->level = 1;
+            accessor->experience = 0;
+            accessor->score = 0;
+        }
         handles.push_back(handle);
     }
 
@@ -295,26 +300,28 @@ void example_entity_manager() {
     std::cout << "Creating game scene..." << std::endl;
 
     // Create player
-    auto player = entities.allocate([](GameEntity& e) {
-        e.id = 1;
-        e.name = "Hero";
-        e.x = 0.0f;
-        e.y = 0.0f;
-        e.health = 100;
-        e.active = true;
-    });
+    auto player = entities.allocate();
+    if (auto accessor = entities.acquire_write(player)) {
+        accessor->id = 1;
+        accessor->name = "Hero";
+        accessor->x = 0.0f;
+        accessor->y = 0.0f;
+        accessor->health = 100;
+        accessor->active = true;
+    }
 
     // Create enemies
     std::vector<Storage<GameEntity, 32, 1>::ObjectId> enemies;
     for (int i = 0; i < 5; ++i) {
-        auto enemy = entities.allocate([i](GameEntity& e) {
-            e.id = 100 + i;
-            e.name = "Enemy_" + std::to_string(i + 1);
-            e.x = static_cast<float>((i + 1) * 50);
-            e.y = static_cast<float>((i + 1) * 30);
-            e.health = 50;
-            e.active = true;
-        });
+        auto enemy = entities.allocate();
+        if (auto accessor = entities.acquire_write(enemy)) {
+            accessor->id = 100 + i;
+            accessor->name = "Enemy_" + std::to_string(i + 1);
+            accessor->x = static_cast<float>((i + 1) * 50);
+            accessor->y = static_cast<float>((i + 1) * 30);
+            accessor->health = 50;
+            accessor->active = true;
+        }
         enemies.push_back(enemy);
     }
 

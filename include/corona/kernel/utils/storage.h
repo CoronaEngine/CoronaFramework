@@ -168,7 +168,6 @@ class Storage {
     /**
      * @brief 分配一个槽位并初始化
      *
-     * @param initializer 初始化函数，签名为 void(T&)，在持有槽位独占锁的情况下调用
      * @return 成功返回槽位 ID（内存地址），失败返回 0
      *
      * @note 分配流程：
@@ -181,7 +180,7 @@ class Storage {
      * @throws std::runtime_error 若无法找到槽位所属的 buffer（理论上不应发生）
      */
     [[nodiscard]]
-    ObjectId allocate(const std::function<void(T&)>& initializer) {
+    ObjectId allocate() {
         ObjectId id;
         if (!free_slots_.try_pop(id)) {
             // 扩容
@@ -208,7 +207,6 @@ class Storage {
             {
                 std::unique_lock slot_lock(parent_buffer->mutexes[index]);
                 *ptr = T{};
-                initializer(*ptr);
                 parent_buffer->occupied[index].store(true, std::memory_order_release);
                 occupied_count_.fetch_add(1, std::memory_order_relaxed);
             }

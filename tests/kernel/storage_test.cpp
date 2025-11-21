@@ -13,8 +13,12 @@ TEST(StorageTests, BasicAllocateAndAccess) {
     Storage<int, 8> storage;
 
     // 分配并初始化
-    auto handle = storage.allocate([](int& value) { value = 42; });
+    auto handle = storage.allocate();
     ASSERT_TRUE(handle > 0);
+    {
+        auto accessor = storage.acquire_write(handle);
+        *accessor = 42;
+    }
 
     // 只读访问
     {
@@ -53,8 +57,12 @@ TEST(StorageTests, MultipleAllocations) {
 
     // 分配多个槽位
     for (int i = 0; i < 8; ++i) {
-        auto handle = storage.allocate([i](int& value) { value = i * 10; });
+        auto handle = storage.allocate();
         ASSERT_TRUE(handle > 0);
+        {
+            auto accessor = storage.acquire_write(handle);
+            *accessor = i * 10;
+        }
         handles.push_back(handle);
     }
 
@@ -71,8 +79,12 @@ TEST(StorageTests, MultipleAllocations) {
     }
 
     // 验证可以重新分配
-    auto recycled = storage.allocate([](int& value) { value = 999; });
+    auto recycled = storage.allocate();
     ASSERT_TRUE(recycled > 0);
+    {
+        auto accessor = storage.acquire_write(recycled);
+        *accessor = 999;
+    }
     {
         auto accessor = storage.acquire_read(recycled);
         ASSERT_TRUE(accessor.valid());
@@ -88,8 +100,12 @@ TEST(StorageTests, AutoExpansion) {
     // 分配超过初始容量的槽位，触发自动扩容
     const std::size_t total_allocations = initial_capacity * 3;
     for (std::size_t i = 0; i < total_allocations; ++i) {
-        auto handle = storage.allocate([i](int& value) { value = static_cast<int>(i); });
+        auto handle = storage.allocate();
         ASSERT_TRUE(handle > 0);
+        {
+            auto accessor = storage.acquire_write(handle);
+            *accessor = static_cast<int>(i);
+        }
         handles.push_back(handle);
     }
 
@@ -112,8 +128,12 @@ TEST(StorageTests, ForEachTraversal) {
 
     // 分配一些槽位
     for (int i = 0; i < 10; ++i) {
-        auto handle = storage.allocate([i](int& value) { value = i + 1; });
+        auto handle = storage.allocate();
         ASSERT_TRUE(handle > 0);
+        {
+            auto accessor = storage.acquire_write(handle);
+            *accessor = i + 1;
+        }
         handles.push_back(handle);
     }
 
@@ -158,11 +178,13 @@ TEST(StorageTests, ConcurrentAllocateAndDeallocate) {
         }
 
         for (int iteration = 0; iteration < 500; ++iteration) {
-            auto handle = storage.allocate([iteration](int& value) {
-                value = iteration;
-            });
+            auto handle = storage.allocate();
 
             if (handle > 0) {
+                {
+                    auto accessor = storage.acquire_write(handle);
+                    *accessor = iteration;
+                }
                 allocations.fetch_add(1, std::memory_order_relaxed);
 
                 // 验证读取
@@ -219,7 +241,11 @@ TEST(StorageTests, MixedConcurrentOperations) {
         }
 
         while (!stop.load(std::memory_order_relaxed)) {
-            if (auto handle = storage.allocate([](int& value) { value = 1; })) {
+            if (auto handle = storage.allocate()) {
+                {
+                    auto accessor = storage.acquire_write(handle);
+                    *accessor = 1;
+                }
                 owned.push_back(handle);
                 allocations.fetch_add(1, std::memory_order_relaxed);
             }
@@ -259,7 +285,7 @@ TEST(StorageTests, MixedConcurrentOperations) {
 
         while (!stop.load(std::memory_order_relaxed)) {
             storage.for_each_read([&](const int& value) {
-                ASSERT_GE(value, 1);
+                ASSERT_GE(value, 0);
                 reads.fetch_add(1, std::memory_order_relaxed);
             });
             std::this_thread::yield();
@@ -287,20 +313,13 @@ TEST(StorageTests, MixedConcurrentOperations) {
 TEST(StorageTests, ExceptionSafety) {
     Storage<int, 8> storage;
 
-    // 分配时抛异常
-    bool exception_caught = false;
-    try {
-        storage.allocate([](int&) {
-            throw std::runtime_error("Test exception");
-        });
-    } catch (const std::runtime_error&) {
-        exception_caught = true;
-    }
-    ASSERT_TRUE(exception_caught);
-
     // 验证可以继续正常分配
-    auto handle = storage.allocate([](int& value) { value = 42; });
+    auto handle = storage.allocate();
     ASSERT_TRUE(handle > 0);
+    {
+        auto accessor = storage.acquire_write(handle);
+        *accessor = 42;
+    }
     {
         auto accessor = storage.acquire_read(handle);
         ASSERT_TRUE(accessor.valid());
@@ -309,10 +328,14 @@ TEST(StorageTests, ExceptionSafety) {
     storage.deallocate(handle);
 
     // write 时抛异常
-    handle = storage.allocate([](int& value) { value = 100; });
+    handle = storage.allocate();
     ASSERT_TRUE(handle > 0);
+    {
+        auto accessor = storage.acquire_write(handle);
+        *accessor = 100;
+    }
 
-    exception_caught = false;
+    bool exception_caught = false;
     try {
         auto accessor = storage.acquire_write(handle);
         if (accessor) {
@@ -336,8 +359,12 @@ TEST(StorageTests, HandleLifetimeManagement) {
     Storage<int, 8> storage;
 
     // 测试句柄的 RAII 特性
-    auto handle = storage.allocate([](int& value) { value = 42; });
+    auto handle = storage.allocate();
     ASSERT_TRUE(handle > 0);
+    {
+        auto accessor = storage.acquire_write(handle);
+        *accessor = 42;
+    }
 
     // 读句柄在作用域内有效
     {
@@ -370,7 +397,11 @@ TEST(StorageTests, HandleLifetimeManagement) {
 
 TEST(StorageTests, HandleMoveSemantics) {
     Storage<int, 8> storage;
-    auto handle = storage.allocate([](int& value) { value = 42; });
+    auto handle = storage.allocate();
+    {
+        auto accessor = storage.acquire_write(handle);
+        *accessor = 42;
+    }
 
     {  // 测试读句柄的移动语义
         auto read_accessor1 = storage.acquire_read(handle);
@@ -432,8 +463,12 @@ TEST(StorageTests, CapacityBoundaryTest) {
     // 填满第一个 buffer
     std::vector<Storage<int, capacity, 1>::ObjectId> handles;
     for (std::size_t i = 0; i < capacity; ++i) {
-        auto handle = storage.allocate([i](int& value) { value = static_cast<int>(i); });
+        auto handle = storage.allocate();
         ASSERT_TRUE(handle > 0);
+        {
+            auto accessor = storage.acquire_write(handle);
+            *accessor = static_cast<int>(i);
+        }
         handles.push_back(handle);
     }
 
@@ -441,7 +476,11 @@ TEST(StorageTests, CapacityBoundaryTest) {
     ASSERT_FALSE(storage.empty());
 
     // 分配第 capacity+1 个对象，触发扩容
-    auto overflow_handle = storage.allocate([](int& value) { value = 999; });
+    auto overflow_handle = storage.allocate();
+    {
+        auto accessor = storage.acquire_write(overflow_handle);
+        *accessor = 999;
+    }
     ASSERT_TRUE(overflow_handle > 0);
     ASSERT_EQ(storage.capacity(), capacity * 2);  // 应该扩容到 8
     ASSERT_EQ(storage.count(), capacity + 1);
@@ -475,8 +514,12 @@ TEST(StorageTests, SlotReuse) {
     // 分配多个槽位，然后全部释放
     std::vector<Storage<int, 8>::ObjectId> handles;
     for (int i = 0; i < 8; ++i) {
-        auto handle = storage.allocate([i](int& value) { value = i; });
+        auto handle = storage.allocate();
         ASSERT_TRUE(handle > 0);
+        {
+            auto accessor = storage.acquire_write(handle);
+            *accessor = i;
+        }
         handles.push_back(handle);
     }
     ASSERT_EQ(storage.count(), 8U);
@@ -491,8 +534,12 @@ TEST(StorageTests, SlotReuse) {
     std::size_t initial_capacity = storage.capacity();
     std::vector<Storage<int, 8>::ObjectId> reused_handles;
     for (int i = 0; i < 8; ++i) {
-        auto handle = storage.allocate([i](int& value) { value = i + 100; });
+        auto handle = storage.allocate();
         ASSERT_TRUE(handle > 0);
+        {
+            auto accessor = storage.acquire_write(handle);
+            *accessor = i + 100;
+        }
         reused_handles.push_back(handle);
     }
 
@@ -515,7 +562,11 @@ TEST(StorageTests, SlotReuse) {
 
 TEST(StorageTests, ReadWriteLockContention) {
     Storage<int, 32> storage;
-    auto handle = storage.allocate([](int& value) { value = 0; });
+    auto handle = storage.allocate();
+    {
+        auto accessor = storage.acquire_write(handle);
+        *accessor = 0;
+    }
 
     std::atomic<bool> start{false};
     std::atomic<bool> stop{false};
@@ -590,7 +641,11 @@ TEST(StorageTests, ForEachWithConcurrentModifications) {
 
     // 预分配一些对象
     for (int i = 0; i < 20; ++i) {
-        auto handle = storage.allocate([i](int& value) { value = i; });
+        auto handle = storage.allocate();
+        {
+            auto accessor = storage.acquire_write(handle);
+            *accessor = i;
+        }
         handles.push_back(handle);
     }
 
@@ -669,7 +724,11 @@ TEST(StorageTests, StressTestAllocationDeallocation) {
         for (int iteration = 0; iteration < 1000; ++iteration) {
             // 分配一批
             for (int i = 0; i < 10; ++i) {
-                if (auto handle = storage.allocate([i](int& value) { value = i; })) {
+                if (auto handle = storage.allocate()) {
+                    {
+                        auto accessor = storage.acquire_write(handle);
+                        *accessor = i;
+                    }
                     local_handles.push_back(handle);
                 }
             }
@@ -728,11 +787,13 @@ TEST(StorageTests, ComplexDataStructure) {
 
     Storage<ComplexObject, 16> storage;
 
-    auto handle = storage.allocate([](ComplexObject& obj) {
-        obj.id = 1;
-        obj.name = "test_object";
-        obj.data = {1, 2, 3, 4, 5};
-    });
+    auto handle = storage.allocate();
+    {
+        auto accessor = storage.acquire_write(handle);
+        accessor->id = 1;
+        accessor->name = "test_object";
+        accessor->data = {1, 2, 3, 4, 5};
+    }
 
     ASSERT_TRUE(handle > 0);
 
@@ -769,10 +830,7 @@ TEST(StorageTests, ZeroInitialization) {
     Storage<int, 8> storage;
 
     // 测试默认初始化（应该调用 T{} 进行零初始化）
-    auto handle = storage.allocate([](int& value) {
-        // 不设置值，验证默认构造的行为
-        (void)value;
-    });
+    auto handle = storage.allocate();
 
     {
         auto accessor = storage.acquire_read(handle);
@@ -809,7 +867,11 @@ TEST(StorageTests, ComprehensiveConcurrentOperations) {
 
         while (!stop.load(std::memory_order_relaxed)) {
             // 分配新槽位
-            if (auto handle = storage.allocate([](int& value) { value = 0; })) {
+            if (auto handle = storage.allocate()) {
+                {
+                    auto accessor = storage.acquire_write(handle);
+                    *accessor = 0;
+                }
                 owned.push_back(handle);
                 allocations.fetch_add(1, std::memory_order_relaxed);
             }
@@ -843,7 +905,11 @@ TEST(StorageTests, ComprehensiveConcurrentOperations) {
         while (!stop.load(std::memory_order_relaxed)) {
             // 尝试分配一批句柄用于后续释放
             for (int i = 0; i < 10 && to_deallocate.size() < capacity / 4; ++i) {
-                if (auto handle = storage.allocate([i](int& value) { value = i; })) {
+                if (auto handle = storage.allocate()) {
+                    {
+                        auto accessor = storage.acquire_write(handle);
+                        *accessor = i;
+                    }
                     to_deallocate.push_back(handle);
                     allocations.fetch_add(1, std::memory_order_relaxed);
                 }
@@ -878,7 +944,11 @@ TEST(StorageTests, ComprehensiveConcurrentOperations) {
         while (!stop.load(std::memory_order_relaxed)) {
             // 获取一些句柄进行读取
             for (int i = 0; i < 5; ++i) {
-                if (auto handle = storage.allocate([](int& value) { value = 999; })) {
+                if (auto handle = storage.allocate()) {
+                    {
+                        auto accessor = storage.acquire_write(handle);
+                        *accessor = 999;
+                    }
                     cached_handles.push_back(handle);
                 }
             }
@@ -914,7 +984,11 @@ TEST(StorageTests, ComprehensiveConcurrentOperations) {
         while (!stop.load(std::memory_order_relaxed)) {
             // 获取一些句柄进行写入
             for (int i = 0; i < 5; ++i) {
-                if (auto handle = storage.allocate([](int& value) { value = 0; })) {
+                if (auto handle = storage.allocate()) {
+                    {
+                        auto accessor = storage.acquire_write(handle);
+                        *accessor = 0;
+                    }
                     cached_handles.push_back(handle);
                 }
             }
