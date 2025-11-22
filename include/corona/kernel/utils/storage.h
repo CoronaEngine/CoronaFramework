@@ -232,6 +232,7 @@ class Storage {
             return index * BufferCapacity +
                    (id - reinterpret_cast<std::uintptr_t>(&(buffer->buffer[0]))) / sizeof(T);
         }
+        throw std::runtime_error("Parent buffer not found during seq_id calculation");
         return -1;
     }
 
@@ -306,17 +307,13 @@ class Storage {
 
         if (parent_buffer) {
             std::size_t index = (id - reinterpret_cast<ObjectId>(&(parent_buffer->buffer[0]))) / sizeof(T);
-            {
-                std::unique_lock slot_lock(parent_buffer->mutexes[index]);
-                *ptr = T{};
-                parent_buffer->occupied[index].store(true, std::memory_order_release);
-                occupied_count_.fetch_add(1, std::memory_order_relaxed);
-            }
-        } else {
-            throw std::runtime_error("Parent buffer not found during allocation");
+            std::unique_lock slot_lock(parent_buffer->mutexes[index]);
+            *ptr = T{};
+            parent_buffer->occupied[index].store(true, std::memory_order_release);
+            occupied_count_.fetch_add(1, std::memory_order_relaxed);
+            return id;
         }
-
-        return id;
+        throw std::runtime_error("Parent buffer not found during allocation");
     }
 
     /**
@@ -339,15 +336,16 @@ class Storage {
 
         if (parent_buffer) {
             std::size_t index = (id - reinterpret_cast<std::uint64_t>(&(parent_buffer->buffer[0]))) / sizeof(T);
-            {
-                std::unique_lock slot_lock(parent_buffer->mutexes[index]);
-                parent_buffer->occupied[index].store(false, std::memory_order_release);
-                occupied_count_.fetch_sub(1, std::memory_order_relaxed);
+            std::unique_lock slot_lock(parent_buffer->mutexes[index]);
+            if (parent_buffer->occupied[index].load(std::memory_order_acquire) == false) {
+                throw std::runtime_error("Double free detected during deallocation");
             }
+            parent_buffer->occupied[index].store(false, std::memory_order_release);
+            occupied_count_.fetch_sub(1, std::memory_order_relaxed);
             free_slots_.push(id);
-        } else {
-            throw std::runtime_error("Parent buffer not found during deallocation");
+            return;
         }
+        throw std::runtime_error("Parent buffer not found during deallocation");
     }
 
     /**
@@ -375,7 +373,7 @@ class Storage {
                 return ReadHandle(ptr, std::move(slot_lock));
             }
         }
-        return ReadHandle();
+        throw std::runtime_error("Parent buffer not found during read acquisition");
     }
 
     /**
@@ -403,7 +401,7 @@ class Storage {
                 return WriteHandle(ptr, std::move(slot_lock));
             }
         }
-        return WriteHandle();
+        throw std::runtime_error("Parent buffer not found during write acquisition");
     }
 
     /**
@@ -465,13 +463,13 @@ class Storage {
                         std::unique_lock slot_lock(buffer.mutexes[slot_index_], std::try_to_lock);
                         if (slot_lock.owns_lock()) {
                             handle_ = WriteHandle(&buffer.buffer[slot_index_], std::move(slot_lock));
-                            slot_index_++;
+                            ++slot_index_;
                             return;
                         } else {
                             skipped_items_.push({&buffer, slot_index_});
                         }
                     }
-                    slot_index_++;
+                    ++slot_index_;
                 } else {
                     if (skipped_items_.empty()) {
                         is_end_ = true;
@@ -479,7 +477,7 @@ class Storage {
                     }
                     auto [buffer, index] = skipped_items_.front();
                     skipped_items_.pop();
-
+                    // Note: 阻塞重试
                     std::unique_lock slot_lock(buffer->mutexes[index]);
                     if (buffer->occupied[index].load(std::memory_order_acquire)) {
                         handle_ = WriteHandle(&buffer->buffer[index], std::move(slot_lock));
