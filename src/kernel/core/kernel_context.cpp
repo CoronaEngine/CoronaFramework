@@ -6,7 +6,6 @@
 namespace Corona::Kernel {
 
 // Forward declare factory functions
-std::unique_ptr<ILogger> create_logger();
 std::unique_ptr<IEventBus> create_event_bus();
 std::unique_ptr<IEventBusStream> create_event_bus_stream();
 std::unique_ptr<IVirtualFileSystem> create_vfs();
@@ -29,11 +28,6 @@ bool KernelContext::initialize() {
     }
 
     // Initialize services in order
-    logger_ = create_logger();
-    if (!logger_) {
-        return false;
-    }
-
     event_bus_ = create_event_bus();
     if (!event_bus_) {
         return false;
@@ -60,7 +54,7 @@ bool KernelContext::initialize() {
     }
 
     initialized_ = true;
-    logger_->info("Kernel initialized successfully");
+    CoronaLogger::info("Kernel initialized successfully");
 
     return true;
 }
@@ -72,9 +66,7 @@ void KernelContext::shutdown() {
         return;
     }
 
-    if (logger_) {
-        logger_->info("Shutting down kernel...");
-    }
+    CoronaLogger::info("Shutting down kernel...");
 
     // Shutdown services in reverse order
     system_manager_.reset();
@@ -82,7 +74,6 @@ void KernelContext::shutdown() {
     vfs_.reset();
     event_stream_.reset();
     event_bus_.reset();
-    logger_.reset();
 
     initialized_ = false;
 }

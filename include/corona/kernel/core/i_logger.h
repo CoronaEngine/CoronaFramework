@@ -158,4 +158,109 @@ std::shared_ptr<ISink> create_console_sink();
  */
 std::shared_ptr<ISink> create_file_sink(std::string_view filename);
 
+// ========================================
+// 静态全局日志器
+// ========================================
+
+/**
+ * @brief 静态全局日志器封装类
+ *
+ * CoronaLogger 提供静态方法访问全局默认日志器，简化日志调用流程。
+ * 内部拥有独立的日志器实例（懒加载单例），首次调用时自动创建。
+ *
+ * 特性：
+ * - 线程安全：使用 Meyers 单例模式，首次访问时自动初始化
+ * - 独立生命周期：日志器由 CoronaLogger 管理，无需外部设置
+ * - 默认配置：自动添加控制台输出 Sink
+ *
+ * 使用示例：
+ * @code
+ * // 直接使用静态方法记录日志（无需初始化）
+ * CoronaLogger::info("程序启动");
+ * CoronaLogger::warning("配置文件未找到");
+ * CoronaLogger::error("网络连接失败");
+ *
+ * // 也可以获取日志器进行高级配置
+ * auto* logger = CoronaLogger::get_default();
+ * logger->add_sink(create_file_sink("app.log"));
+ * @endcode
+ */
+class CoronaLogger {
+   public:
+    /**
+     * @brief 获取默认日志器
+     * @return 默认日志器指针，永不为空
+     *
+     * 首次调用时自动创建日志器实例（线程安全）
+     */
+    static ILogger* get_default() noexcept;
+
+    // ========================================
+    // 便捷静态方法
+    // ========================================
+
+    /**
+     * @brief 记录跟踪级别日志
+     * @param message 日志内容
+     * @param location 源代码位置，自动捕获
+     */
+    static void trace(std::string_view message,
+                      const std::source_location& location = std::source_location::current()) {
+        get_default()->log(LogLevel::trace, message, location);
+    }
+
+    /**
+     * @brief 记录调试级别日志
+     * @param message 日志内容
+     * @param location 源代码位置，自动捕获
+     */
+    static void debug(std::string_view message,
+                      const std::source_location& location = std::source_location::current()) {
+        get_default()->log(LogLevel::debug, message, location);
+    }
+
+    /**
+     * @brief 记录信息级别日志
+     * @param message 日志内容
+     * @param location 源代码位置，自动捕获
+     */
+    static void info(std::string_view message,
+                     const std::source_location& location = std::source_location::current()) {
+        get_default()->log(LogLevel::info, message, location);
+    }
+
+    /**
+     * @brief 记录警告级别日志
+     * @param message 日志内容
+     * @param location 源代码位置，自动捕获
+     */
+    static void warning(std::string_view message,
+                        const std::source_location& location = std::source_location::current()) {
+        get_default()->log(LogLevel::warning, message, location);
+    }
+
+    /**
+     * @brief 记录错误级别日志
+     * @param message 日志内容
+     * @param location 源代码位置，自动捕获
+     */
+    static void error(std::string_view message,
+                      const std::source_location& location = std::source_location::current()) {
+        get_default()->log(LogLevel::error, message, location);
+    }
+
+    /**
+     * @brief 记录致命级别日志
+     * @param message 日志内容
+     * @param location 源代码位置，自动捕获
+     */
+    static void fatal(std::string_view message,
+                      const std::source_location& location = std::source_location::current()) {
+        get_default()->log(LogLevel::fatal, message, location);
+    }
+
+   private:
+    CoronaLogger() = delete;
+};
+
 }  // namespace Corona::Kernel

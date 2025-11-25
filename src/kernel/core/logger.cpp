@@ -1,3 +1,5 @@
+#include <oneapi/tbb/concurrent_queue.h>
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -6,7 +8,6 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
-#include <queue>
 #include <thread>
 #include <vector>
 
@@ -65,7 +66,7 @@ class ConsoleSink : public ISink {
     ConsoleSink() : min_level_(LogLevel::info) {}
 
     void log(const LogMessage& msg) override {
-        if (msg.level < min_level_) {
+        if (msg.level < min_level_.load(std::memory_order_acquire)) {
             return;
         }
 
@@ -91,20 +92,20 @@ class ConsoleSink : public ISink {
     }
 
     void set_level(LogLevel level) override {
-        std::lock_guard<std::mutex> lock(mutex_);
-        min_level_ = level;
+        min_level_.store(level, std::memory_order_release);
     }
 
     LogLevel get_level() const override {
-        return min_level_;
+        return min_level_.load(std::memory_order_acquire);
     }
 
    private:
-    LogLevel min_level_;
-    std::mutex mutex_;
+    std::atomic<LogLevel> min_level_;
+    std::mutex mutex_;  // 仅保护 std::cout 输出
 };
 
 // 异步文件 Sink - 使用后台线程处理文件写入
+// 使用 TBB concurrent_queue 实现无锁入队，提升高并发性能
 class AsyncFileSink : public ISink {
    public:
     explicit AsyncFileSink(std::string_view filename)
@@ -117,10 +118,7 @@ class AsyncFileSink : public ISink {
 
     ~AsyncFileSink() {
         // 停止后台线程
-        {
-            std::lock_guard<std::mutex> lock(queue_mutex_);
-            running_ = false;
-        }
+        running_.store(false, std::memory_order_release);
         cv_.notify_one();
 
         if (worker_thread_.joinable()) {
@@ -133,22 +131,21 @@ class AsyncFileSink : public ISink {
     }
 
     void log(const LogMessage& msg) override {
-        if (msg.level < min_level_) {
+        if (msg.level < min_level_.load(std::memory_order_acquire)) {
             return;
         }
 
-        // 将日志消息放入队列（不阻塞）
-        {
-            std::lock_guard<std::mutex> lock(queue_mutex_);
-            message_queue_.push(msg);
-        }
+        // 使用无锁队列入队（线程安全，无需加锁）
+        message_queue_.push(msg);
+
+        // 通知后台线程有新消息
         cv_.notify_one();
     }
 
     void flush() override {
         // 等待队列清空
-        std::unique_lock<std::mutex> lock(queue_mutex_);
-        cv_.wait(lock, [this] { return message_queue_.empty() || !running_; });
+        std::unique_lock<std::mutex> lock(cv_mutex_);
+        cv_.wait(lock, [this] { return message_queue_.empty() || !running_.load(std::memory_order_acquire); });
 
         // 刷新文件
         if (file_.is_open()) {
@@ -157,43 +154,39 @@ class AsyncFileSink : public ISink {
     }
 
     void set_level(LogLevel level) override {
-        std::lock_guard<std::mutex> lock(level_mutex_);
-        min_level_ = level;
+        min_level_.store(level, std::memory_order_release);
     }
 
     LogLevel get_level() const override {
-        std::lock_guard<std::mutex> lock(level_mutex_);
-        return min_level_;
+        return min_level_.load(std::memory_order_acquire);
     }
 
    private:
     void process_queue() {
-        while (running_) {
-            std::unique_lock<std::mutex> lock(queue_mutex_);
+        while (running_.load(std::memory_order_acquire)) {
+            LogMessage msg;
 
-            // 等待新消息或停止信号
-            cv_.wait(lock, [this] { return !message_queue_.empty() || !running_; });
-
-            // 批量处理消息以提高性能
-            while (!message_queue_.empty()) {
-                LogMessage msg = message_queue_.front();
-                message_queue_.pop();
-
-                // 解锁后写入，避免阻塞新日志入队
-                lock.unlock();
+            // 尝试从无锁队列中取出消息
+            if (message_queue_.try_pop(msg)) {
                 write_to_file(msg);
-                lock.lock();
-            }
 
-            // 通知 flush 等待者
-            cv_.notify_all();
+                // 如果队列为空，通知 flush 等待者
+                if (message_queue_.empty()) {
+                    cv_.notify_all();
+                }
+            } else {
+                // 队列为空，等待新消息
+                std::unique_lock<std::mutex> lock(cv_mutex_);
+                cv_.wait_for(lock, std::chrono::milliseconds(10), [this] {
+                    return !message_queue_.empty() || !running_.load(std::memory_order_acquire);
+                });
+            }
         }
 
         // 线程退出前处理剩余消息
-        std::lock_guard<std::mutex> lock(queue_mutex_);
-        while (!message_queue_.empty()) {
-            write_to_file(message_queue_.front());
-            message_queue_.pop();
+        LogMessage msg;
+        while (message_queue_.try_pop(msg)) {
+            write_to_file(msg);
         }
     }
 
@@ -216,12 +209,11 @@ class AsyncFileSink : public ISink {
               << std::endl;
     }
 
-    LogLevel min_level_;
+    std::atomic<LogLevel> min_level_;
     std::ofstream file_;
 
-    std::queue<LogMessage> message_queue_;
-    std::mutex queue_mutex_;
-    mutable std::mutex level_mutex_;
+    tbb::concurrent_queue<LogMessage> message_queue_;  // TBB 无锁队列
+    std::mutex cv_mutex_;                              // 仅用于条件变量等待
     std::condition_variable cv_;
 
     std::atomic<bool> running_;
@@ -236,7 +228,7 @@ class Logger : public ILogger {
     void log(LogLevel level, std::string_view message, const std::source_location& location) override {
         LogMessage msg{
             level,
-            message,
+            std::string(message),  // 转换为 std::string，确保异步处理时数据安全
             location,
             std::chrono::system_clock::now()};
 
@@ -278,6 +270,20 @@ std::unique_ptr<ILogger> create_logger() {
     // Add default console sink
     logger->add_sink(std::make_shared<ConsoleSink>());
     return logger;
+}
+
+// ========================================
+// CoronaLogger 静态实现
+// ========================================
+
+// 使用 Meyers 单例模式，线程安全的懒加载初始化
+static std::unique_ptr<ILogger>& get_default_logger_instance() {
+    static std::unique_ptr<ILogger> instance = create_logger();
+    return instance;
+}
+
+ILogger* CoronaLogger::get_default() noexcept {
+    return get_default_logger_instance().get();
 }
 
 std::shared_ptr<ISink> create_console_sink() {

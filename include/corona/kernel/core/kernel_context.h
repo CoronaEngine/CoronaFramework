@@ -52,8 +52,8 @@ class KernelContext {
     // 服务访问器
     // ========================================
 
-    /** @brief 获取日志服务指针 */
-    ILogger* logger() const { return logger_.get(); }
+    /** @brief 获取日志服务指针（从 CoronaLogger 获取） */
+    ILogger* logger() const { return CoronaLogger::get_default(); }
 
     /** @brief 获取事件总线指针 */
     IEventBus* event_bus() const { return event_bus_.get(); }
@@ -81,7 +81,6 @@ class KernelContext {
     KernelContext& operator=(KernelContext&&) = delete;
 
     // 核心服务实例
-    std::unique_ptr<ILogger> logger_;                 ///< 日志系统
     std::unique_ptr<IEventBus> event_bus_;            ///< 事件总线（即时消息）
     std::unique_ptr<IEventBusStream> event_stream_;   ///< 事件流（队列消息）
     std::unique_ptr<IVirtualFileSystem> vfs_;         ///< 虚拟文件系统

@@ -75,6 +75,9 @@ corona_add_test(kernel_eventstream_mt_test kernel/eventstream_mt_test.cpp)
 # Logger 多线程测试
 corona_add_test(kernel_logger_mt_test kernel/logger_mt_test.cpp)
 
+# FileSink 多线程测试
+corona_add_test(kernel_filesink_mt_test kernel/filesink_mt_test.cpp)
+
 # VFS 多线程测试
 corona_add_test(kernel_vfs_mt_test kernel/vfs_mt_test.cpp)
 
@@ -177,6 +180,12 @@ add_test(
 add_test(
     NAME LoggerMT
     COMMAND kernel_logger_mt_test
+)
+
+# 注册 FileSink 多线程测试
+add_test(
+    NAME FileSinkMT
+    COMMAND kernel_filesink_mt_test
 )
 
 # 注册 VFS 多线程测试

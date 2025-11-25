@@ -1,7 +1,7 @@
 #pragma once
 #include <chrono>
 #include <source_location>
-#include <string_view>
+#include <string>
 
 namespace Corona::Kernel {
 
@@ -23,10 +23,12 @@ enum class LogLevel {
  * @brief 日志消息结构体
  *
  * 包含一条日志的完整信息，包括级别、内容、源位置和时间戳
+ *
+ * @note message 使用 std::string 而非 string_view，确保异步处理时数据安全
  */
 struct LogMessage {
     LogLevel level;                                   ///< 日志级别
-    std::string_view message;                         ///< 日志内容
+    std::string message;                              ///< 日志内容（拥有数据，避免悬空引用）
     std::source_location location;                    ///< 源代码位置（文件名、行号、函数名）
     std::chrono::system_clock::time_point timestamp;  ///< 时间戳
 };
