@@ -2,6 +2,7 @@
 #include <chrono>
 #include <source_location>
 #include <string>
+#include <thread>
 
 namespace Corona::Kernel {
 
@@ -31,6 +32,7 @@ struct LogMessage {
     std::string message;                              ///< 日志内容（拥有数据，避免悬空引用）
     std::source_location location;                    ///< 源代码位置（文件名、行号、函数名）
     std::chrono::system_clock::time_point timestamp;  ///< 时间戳
+    std::thread::id thread_id;                        ///< 调用者线程ID
 };
 
 /**

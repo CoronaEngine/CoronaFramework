@@ -78,8 +78,9 @@ class ConsoleSink : public ISink {
 
         // Use std::cout to print
         std::cout << time_buffer
-                  << " [" << level_to_string(msg.level) << "]"
-                  << " [" << msg.location.file_name()
+                  << "[" << msg.thread_id << "]"
+                  << "[" << level_to_string(msg.level) << "]"
+                  << "[" << msg.location.file_name()
                   << ":" << msg.location.line()
                   << ":" << msg.location.column() << "]"
                   << " " << msg.message
@@ -201,8 +202,9 @@ class AsyncFileSink : public ISink {
 
         // Write to file
         file_ << time_buffer
-              << " [" << level_to_string(msg.level) << "]"
-              << " [" << msg.location.file_name()
+              << "[" << msg.thread_id << "]"
+              << "[" << level_to_string(msg.level) << "]"
+              << "[" << msg.location.file_name()
               << ":" << msg.location.line()
               << ":" << msg.location.column() << "]"
               << " " << msg.message
@@ -230,7 +232,8 @@ class Logger : public ILogger {
             level,
             std::string(message),  // 转换为 std::string，确保异步处理时数据安全
             location,
-            std::chrono::system_clock::now()};
+            std::chrono::system_clock::now(),
+            std::this_thread::get_id()};
 
         std::lock_guard<std::mutex> lock(mutex_);
         for (auto& sink : sinks_) {
@@ -246,6 +249,12 @@ class Logger : public ILogger {
     void remove_all_sinks() override {
         std::lock_guard<std::mutex> lock(mutex_);
         sinks_.clear();
+    }
+
+    void reset() override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        sinks_.clear();
+        sinks_.push_back(std::make_shared<ConsoleSink>());
     }
 
     void set_level(LogLevel level) override {

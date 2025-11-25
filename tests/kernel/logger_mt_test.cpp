@@ -133,6 +133,9 @@ TEST(LoggerMT, DynamicSinkManagement) {
     // 验证没有崩溃
     ASSERT_GT(sink_add_count.load(), 0);
 
+    // 清理：重置 Logger 到初始状态，避免影响后续测试
+    logger->reset();
+
     kernel.shutdown();
 }
 
@@ -298,6 +301,9 @@ TEST(LoggerMT, MixedOperationsStress) {
 
     // 验证
     ASSERT_GT(total_logs.load(), 0);
+
+    // 清理：重置 Logger 到初始状态，避免影响后续测试
+    logger->reset();
 
     kernel.shutdown();
 }
