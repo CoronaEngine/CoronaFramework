@@ -4,6 +4,7 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <list>
@@ -13,7 +14,18 @@
 #include <stdexcept>
 #include <utility>
 
+#include "corona/kernel/core/i_logger.h"
 #include "corona/pal/cfw_platform.h"
+#include "corona/kernel/utils/stack_trace.h"
+
+// 超时锁配置（用于死锁检测）
+#ifndef CFW_LOCK_TIMEOUT_MS
+#ifdef NDEBUG
+#define CFW_LOCK_TIMEOUT_MS 10000  // 生产环境 10 秒
+#else
+#define CFW_LOCK_TIMEOUT_MS 200  // 调试环境 0.2 秒
+#endif
+#endif
 
 namespace Corona::Kernel::Utils {
 
@@ -47,9 +59,9 @@ struct StaticBuffer {
 
     ~StaticBuffer() = default;
 
-    std::array<T, Capacity> buffer{};                           ///< 数据存储数组
-    std::array<std::atomic<bool>, Capacity> occupied{};         ///< 槽位占用标志，原子操作确保可见性
-    mutable std::array<std::shared_mutex, Capacity> mutexes{};  ///< 每个槽位的独立共享锁
+    std::array<T, Capacity> buffer{};                                 ///< 数据存储数组
+    std::array<std::atomic<bool>, Capacity> occupied{};               ///< 槽位占用标志，原子操作确保可见性
+    mutable std::array<std::shared_timed_mutex, Capacity> mutexes{};  ///< 每个槽位的独立共享锁（支持超时）
 };
 
 /**
@@ -111,7 +123,7 @@ class Storage {
     class ReadHandle {
        public:
         ReadHandle() = default;
-        ReadHandle(const T* ptr, std::shared_lock<std::shared_mutex>&& lock)
+        ReadHandle(const T* ptr, std::shared_lock<std::shared_timed_mutex>&& lock)
             : ptr_(ptr), lock_(std::move(lock)) {}
 
         ReadHandle(ReadHandle&&) = default;
@@ -128,7 +140,7 @@ class Storage {
 
        private:
         const T* ptr_ = nullptr;
-        std::shared_lock<std::shared_mutex> lock_;
+        std::shared_lock<std::shared_timed_mutex> lock_;
     };
 
     /**
@@ -137,7 +149,7 @@ class Storage {
     class WriteHandle {
        public:
         WriteHandle() = default;
-        WriteHandle(T* ptr, std::unique_lock<std::shared_mutex>&& lock)
+        WriteHandle(T* ptr, std::unique_lock<std::shared_timed_mutex>&& lock)
             : ptr_(ptr), lock_(std::move(lock)) {}
 
         WriteHandle(WriteHandle&&) = default;
@@ -154,7 +166,7 @@ class Storage {
 
        private:
         T* ptr_ = nullptr;
-        std::unique_lock<std::shared_mutex> lock_;
+        std::unique_lock<std::shared_timed_mutex> lock_;
     };
 
    public:
@@ -360,6 +372,8 @@ class Storage {
      *       3. 加共享锁后检查占用标志，若已占用则返回持有锁的 Handle
      *
      * @note 线程安全，使用共享锁允许多个读者并发访问
+     * @note 使用超时锁检测死锁，超时时间由 CFW_LOCK_TIMEOUT_MS 宏定义
+     * @throws std::runtime_error 若锁获取超时（可能存在死锁）
      */
     [[nodiscard]]
     ReadHandle acquire_read(ObjectId id) {
@@ -368,7 +382,20 @@ class Storage {
 
         if (parent_buffer) {
             std::size_t index = (id - reinterpret_cast<ObjectId>(&(parent_buffer->buffer[0]))) / sizeof(T);
-            std::shared_lock slot_lock(parent_buffer->mutexes[index]);
+            std::shared_lock<std::shared_timed_mutex> slot_lock(parent_buffer->mutexes[index], std::defer_lock);
+
+            // 使用超时锁检测死锁
+            constexpr auto timeout = std::chrono::milliseconds(CFW_LOCK_TIMEOUT_MS);
+            if (!slot_lock.try_lock_for(timeout)) {
+                std::string stack_info = capture_stack_trace(2, 15);
+                std::string error_msg = 
+                    "Lock timeout during acquire_read for object " + std::to_string(id) +
+                    " after " + std::to_string(CFW_LOCK_TIMEOUT_MS) + "ms - possible deadlock detected\n" +
+                    stack_info;
+                CoronaLogger::error(error_msg);
+                throw std::runtime_error(error_msg);
+            }
+
             if (parent_buffer->occupied[index].load(std::memory_order_acquire)) {
                 return ReadHandle(ptr, std::move(slot_lock));
             }
@@ -388,6 +415,8 @@ class Storage {
      *       3. 加独占锁后检查占用标志，若已占用则返回持有锁的 Handle
      *
      * @note 线程安全，使用独占锁确保独占写入
+     * @note 使用超时锁检测死锁，超时时间由 CFW_LOCK_TIMEOUT_MS 宏定义
+     * @throws std::runtime_error 若锁获取超时（可能存在死锁）
      */
     [[nodiscard]]
     WriteHandle acquire_write(ObjectId id) {
@@ -396,7 +425,20 @@ class Storage {
 
         if (parent_buffer) {
             std::size_t index = (id - reinterpret_cast<ObjectId>(&(parent_buffer->buffer[0]))) / sizeof(T);
-            std::unique_lock slot_lock(parent_buffer->mutexes[index]);
+            std::unique_lock<std::shared_timed_mutex> slot_lock(parent_buffer->mutexes[index], std::defer_lock);
+
+            // 使用超时锁检测死锁
+            constexpr auto timeout = std::chrono::milliseconds(CFW_LOCK_TIMEOUT_MS);
+            if (!slot_lock.try_lock_for(timeout)) {
+                std::string stack_info = capture_stack_trace(2, 15);
+                std::string error_msg = 
+                    "Lock timeout during acquire_write for object " + std::to_string(id) +
+                    " after " + std::to_string(CFW_LOCK_TIMEOUT_MS) + "ms - possible deadlock detected\n" +
+                    stack_info;
+                CoronaLogger::error(error_msg);
+                throw std::runtime_error(error_msg);
+            }
+
             if (parent_buffer->occupied[index].load(std::memory_order_acquire)) {
                 return WriteHandle(ptr, std::move(slot_lock));
             }
