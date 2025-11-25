@@ -27,6 +27,11 @@
 #endif
 #endif
 
+// 锁超时功能开关
+#ifndef CFW_ENABLE_LOCK_TIMEOUT
+#define CFW_ENABLE_LOCK_TIMEOUT 0  // 默认关闭，设为 1 则使用超时锁
+#endif
+
 namespace Corona::Kernel::Utils {
 
 /**
@@ -384,6 +389,7 @@ class Storage {
             std::size_t index = (id - reinterpret_cast<ObjectId>(&(parent_buffer->buffer[0]))) / sizeof(T);
             std::shared_lock<std::shared_timed_mutex> slot_lock(parent_buffer->mutexes[index], std::defer_lock);
 
+#if CFW_ENABLE_LOCK_TIMEOUT
             // 使用超时锁检测死锁
             constexpr auto timeout = std::chrono::milliseconds(CFW_LOCK_TIMEOUT_MS);
             if (!slot_lock.try_lock_for(timeout)) {
@@ -395,6 +401,9 @@ class Storage {
                 CoronaLogger::error(error_msg);
                 throw std::runtime_error(error_msg);
             }
+#else
+            slot_lock.lock();
+#endif
 
             if (parent_buffer->occupied[index].load(std::memory_order_acquire)) {
                 return ReadHandle(ptr, std::move(slot_lock));
@@ -427,6 +436,7 @@ class Storage {
             std::size_t index = (id - reinterpret_cast<ObjectId>(&(parent_buffer->buffer[0]))) / sizeof(T);
             std::unique_lock<std::shared_timed_mutex> slot_lock(parent_buffer->mutexes[index], std::defer_lock);
 
+#if CFW_ENABLE_LOCK_TIMEOUT
             // 使用超时锁检测死锁
             constexpr auto timeout = std::chrono::milliseconds(CFW_LOCK_TIMEOUT_MS);
             if (!slot_lock.try_lock_for(timeout)) {
@@ -438,6 +448,9 @@ class Storage {
                 CoronaLogger::error(error_msg);
                 throw std::runtime_error(error_msg);
             }
+#else
+            slot_lock.lock();
+#endif
 
             if (parent_buffer->occupied[index].load(std::memory_order_acquire)) {
                 return WriteHandle(ptr, std::move(slot_lock));
