@@ -15,8 +15,8 @@
 #include <utility>
 
 #include "corona/kernel/core/i_logger.h"
-#include "corona/pal/cfw_platform.h"
 #include "corona/kernel/utils/stack_trace.h"
+#include "corona/pal/cfw_platform.h"
 
 // 超时锁配置（用于死锁检测）
 #ifndef CFW_LOCK_TIMEOUT_MS
@@ -30,6 +30,11 @@
 // 锁超时功能开关
 #ifndef CFW_ENABLE_LOCK_TIMEOUT
 #define CFW_ENABLE_LOCK_TIMEOUT 0  // 默认关闭，设为 1 则使用超时锁
+#endif
+
+// #define CFW_ENABLE_LOCK_LOGGING 1
+#ifndef CFW_ENABLE_LOCK_LOGGING
+#define CFW_ENABLE_LOCK_LOGGING 0  // 默认关闭，设为 1 则启用锁日志记录
 #endif
 
 namespace Corona::Kernel::Utils {
@@ -125,11 +130,25 @@ class Storage {
     /**
      * @brief 只读访问句柄 (RAII)
      */
-    class ReadHandle {
+    class ReadHandle final {
        public:
         ReadHandle() = default;
         ReadHandle(const T* ptr, std::shared_lock<std::shared_timed_mutex>&& lock)
-            : ptr_(ptr), lock_(std::move(lock)) {}
+            : ptr_(ptr), lock_(std::move(lock)) {
+#if CFW_ENABLE_LOCK_LOGGING
+            Corona::Kernel::CoronaLogger::debug(std::format("ReadHandle acquire lock for ptr addr: {}, stack trace:\n{}",
+                                                            reinterpret_cast<std::uintptr_t>(ptr_),
+                                                            capture_stack_trace()));
+#endif
+        }
+
+        ~ReadHandle() {
+#if CFW_ENABLE_LOCK_LOGGING
+            Corona::Kernel::CoronaLogger::debug(std::format("ReadHandle release lock for ptr addr: {}, stack trace:\n{}",
+                                                            reinterpret_cast<std::uintptr_t>(ptr_),
+                                                            capture_stack_trace()));
+#endif
+        }
 
         ReadHandle(ReadHandle&&) = default;
         ReadHandle& operator=(ReadHandle&&) = default;
@@ -151,11 +170,25 @@ class Storage {
     /**
      * @brief 读写访问句柄 (RAII)
      */
-    class WriteHandle {
+    class WriteHandle final {
        public:
         WriteHandle() = default;
         WriteHandle(T* ptr, std::unique_lock<std::shared_timed_mutex>&& lock)
-            : ptr_(ptr), lock_(std::move(lock)) {}
+            : ptr_(ptr), lock_(std::move(lock)) {
+#if CFW_ENABLE_LOCK_LOGGING
+            Corona::Kernel::CoronaLogger::debug(std::format("WriteHandle acquire lock for ptr addr: {}, stack trace:\n{}",
+                                                            reinterpret_cast<std::uintptr_t>(ptr_),
+                                                            capture_stack_trace()));
+#endif
+        }
+
+        ~WriteHandle() {
+#if CFW_ENABLE_LOCK_LOGGING
+            Corona::Kernel::CoronaLogger::debug(std::format("WriteHandle release lock for ptr addr: {}, stack trace:\n{}",
+                                                            reinterpret_cast<std::uintptr_t>(ptr_),
+                                                            capture_stack_trace()));
+#endif
+        }
 
         WriteHandle(WriteHandle&&) = default;
         WriteHandle& operator=(WriteHandle&&) = default;
@@ -394,7 +427,7 @@ class Storage {
             constexpr auto timeout = std::chrono::milliseconds(CFW_LOCK_TIMEOUT_MS);
             if (!slot_lock.try_lock_for(timeout)) {
                 std::string stack_info = capture_stack_trace(2, 15);
-                std::string error_msg = 
+                std::string error_msg =
                     "Lock timeout during acquire_read for object " + std::to_string(id) +
                     " after " + std::to_string(CFW_LOCK_TIMEOUT_MS) + "ms - possible deadlock detected\n" +
                     stack_info;
@@ -441,7 +474,7 @@ class Storage {
             constexpr auto timeout = std::chrono::milliseconds(CFW_LOCK_TIMEOUT_MS);
             if (!slot_lock.try_lock_for(timeout)) {
                 std::string stack_info = capture_stack_trace(2, 15);
-                std::string error_msg = 
+                std::string error_msg =
                     "Lock timeout during acquire_write for object " + std::to_string(id) +
                     " after " + std::to_string(CFW_LOCK_TIMEOUT_MS) + "ms - possible deadlock detected\n" +
                     stack_info;
