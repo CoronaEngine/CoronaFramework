@@ -67,7 +67,7 @@ class WorkerSystem : public SystemBase {
     }
 
     void shutdown() override {
-        ctx_->logger()->info(name_ + " completed " + std::to_string(tasks_completed_) + " tasks");
+        CFW_LOG_INFO("{} completed {} tasks", name_, tasks_completed_.load());
     }
 
    private:
@@ -142,11 +142,11 @@ class StatisticsSystem : public SystemBase {
     void print_statistics() {
         if (total_tasks_ > 0) {
             double avg = total_time_ / total_tasks_;
-            ctx_->logger()->info("=== Statistics ===");
-            ctx_->logger()->info("  Total tasks: " + std::to_string(total_tasks_.load()));
-            ctx_->logger()->info("  Average time: " + std::to_string(avg) + " ms");
-            ctx_->logger()->info("  Min time: " + std::to_string(min_time_) + " ms");
-            ctx_->logger()->info("  Max time: " + std::to_string(max_time_) + " ms");
+            CFW_LOG_INFO("=== Statistics ===");
+            CFW_LOG_INFO("  Total tasks: {}", total_tasks_.load());
+            CFW_LOG_INFO("  Average time: {} ms", avg);
+            CFW_LOG_INFO("  Min time: {} ms", min_time_);
+            CFW_LOG_INFO("  Max time: {} ms", max_time_);
         }
     }
 
@@ -174,7 +174,6 @@ int main() {
 
     auto* system_manager = kernel.system_manager();
     auto* event_bus = kernel.event_bus();
-    auto* logger = kernel.logger();
 
     // ========================================
     // 示例 1: 线程安全的EventBus

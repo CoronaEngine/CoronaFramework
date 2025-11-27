@@ -43,8 +43,6 @@ int main() {
         return 1;
     }
 
-    auto* logger = kernel.logger();
-
     // ========================================
     // 示例 1: 基本的流订阅
     // ========================================
@@ -167,7 +165,7 @@ int main() {
 
     // 数据处理管道
     auto sensor_sub = sensor_stream->subscribe();
-    std::thread sensor_processor([&sensor_sub, logger]() {
+    std::thread sensor_processor([&sensor_sub]() {
         while (auto data = sensor_sub.wait_for(std::chrono::milliseconds(100))) {
             // 过滤：只处理有效范围内的数据
             if (data->value < 0 || data->value > 100) {
@@ -184,14 +182,12 @@ int main() {
                 anomaly};
 
             // 处理结果
-            std::string msg = "Sensor " + std::to_string(processed.sensor_id) +
-                              ": " + std::to_string(processed.processed_value);
-
             if (processed.is_anomaly) {
-                msg += " [WARNING] ANOMALY DETECTED!";
-                logger->warning(msg);
+                CFW_LOG_WARNING("Sensor {}: {} [WARNING] ANOMALY DETECTED!",
+                                processed.sensor_id, processed.processed_value);
             } else {
-                logger->info(msg);
+                CFW_LOG_INFO("Sensor {}: {}",
+                             processed.sensor_id, processed.processed_value);
             }
         }
     });

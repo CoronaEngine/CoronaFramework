@@ -3,6 +3,8 @@
 #include <memory>
 #include <mutex>
 
+#include "corona/kernel/core/i_logger.h"
+
 namespace Corona::Kernel {
 
 // Forward declare factory functions
@@ -26,6 +28,9 @@ bool KernelContext::initialize() {
     if (initialized_) {
         return true;
     }
+
+    // 初始化日志系统（必须最先）
+    CoronaLogger::initialize();
 
     // Initialize services in order
     event_bus_ = create_event_bus();
@@ -54,7 +59,7 @@ bool KernelContext::initialize() {
     }
 
     initialized_ = true;
-    CoronaLogger::info("Kernel initialized successfully");
+    CFW_LOG_INFO("Kernel initialized successfully");
 
     return true;
 }
@@ -66,7 +71,7 @@ void KernelContext::shutdown() {
         return;
     }
 
-    CoronaLogger::info("Shutting down kernel...");
+    CFW_LOG_INFO("Shutting down kernel...");
 
     // Shutdown services in reverse order
     system_manager_.reset();

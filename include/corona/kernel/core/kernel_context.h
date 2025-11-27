@@ -52,9 +52,6 @@ class KernelContext {
     // 服务访问器
     // ========================================
 
-    /** @brief 获取日志服务指针（从 CoronaLogger 获取） */
-    ILogger* logger() const { return CoronaLogger::get_default(); }
-
     /** @brief 获取事件总线指针 */
     IEventBus* event_bus() const { return event_bus_.get(); }
 

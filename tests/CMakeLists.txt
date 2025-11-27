@@ -29,9 +29,6 @@ function(corona_add_test TARGET_NAME)
     set_target_properties(${TARGET_NAME} PROPERTIES FOLDER "Tests")
 endfunction()
 
-# 线程安全测试
-corona_add_test(kernel_thread_safety_test kernel/thread_safety_test.cpp)
-
 # 系统测试
 corona_add_test(kernel_system_test kernel/system_test.cpp)
 
@@ -43,9 +40,6 @@ corona_add_test(kernel_event_stream_test kernel/event_stream_test.cpp)
 
 # EventBus 测试
 corona_add_test(kernel_event_bus_test kernel/event_bus_test.cpp)
-
-# Logger 测试
-corona_add_test(kernel_logger_test kernel/logger_test.cpp)
 
 # VFS 测试
 corona_add_test(kernel_vfs_test kernel/vfs_test.cpp)
@@ -71,12 +65,6 @@ corona_add_test(kernel_eventbus_mt_test kernel/eventbus_mt_test.cpp)
 
 # EventStream 多线程测试
 corona_add_test(kernel_eventstream_mt_test kernel/eventstream_mt_test.cpp)
-
-# Logger 多线程测试
-corona_add_test(kernel_logger_mt_test kernel/logger_mt_test.cpp)
-
-# FileSink 多线程测试
-corona_add_test(kernel_filesink_mt_test kernel/filesink_mt_test.cpp)
 
 # VFS 多线程测试
 corona_add_test(kernel_vfs_mt_test kernel/vfs_mt_test.cpp)

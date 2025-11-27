@@ -288,9 +288,7 @@ class ContextTestSystem : public SystemBase {
 
     bool initialize(ISystemContext* ctx) override {
         // 测试在初始化时访问上下文
-        auto logger = ctx->logger();
-        ASSERT_TRUE(logger != nullptr);
-        logger->info("ContextTestSystem initialized");
+        CFW_LOG_INFO("ContextTestSystem initialized");
         return true;
     }
 
@@ -299,11 +297,8 @@ class ContextTestSystem : public SystemBase {
     void update() override {
         // 测试在更新时访问上下文
         if (!logger_accessed_) {
-            auto logger = context()->logger();
-            if (logger) {
-                logger->info("ContextTestSystem accessing logger");
-                logger_accessed_ = true;
-            }
+            CFW_LOG_INFO("ContextTestSystem accessing logger");
+            logger_accessed_ = true;
         }
 
         if (!event_bus_accessed_) {

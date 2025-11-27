@@ -179,7 +179,7 @@ class InputSystem : public SystemBase {
         // 获取 EventStream（推荐用于跨线程通信）
         input_stream_ = ctx_->event_stream()->get_stream<InputEvent>();
 
-        ctx_->logger()->info("InputSystem initialized (EventStream mode)");
+        CFW_LOG_INFO("InputSystem initialized (EventStream mode)");
         return true;
     }
 
@@ -210,7 +210,7 @@ class InputSystem : public SystemBase {
     }
 
     void shutdown() override {
-        ctx_->logger()->info("InputSystem shutdown");
+        CFW_LOG_INFO("InputSystem shutdown");
     }
 
    private:
@@ -242,7 +242,7 @@ class PhysicsSystem : public SystemBase {
         collision_stream_ = ctx_->event_stream()->get_stream<CollisionEvent>();
         spawn_stream_ = ctx_->event_stream()->get_stream<EntitySpawnEvent>();
 
-        ctx_->logger()->info("PhysicsSystem initialized (EventStream mode)");
+        CFW_LOG_INFO("PhysicsSystem initialized (EventStream mode)");
         return true;
     }
 
@@ -283,8 +283,7 @@ class PhysicsSystem : public SystemBase {
     }
 
     void shutdown() override {
-        ctx_->logger()->info("PhysicsSystem shutdown - total collisions: " +
-                             std::to_string(collision_count_));
+        CFW_LOG_INFO("PhysicsSystem shutdown - total collisions: {}", collision_count_);
         input_subscription_.close();
     }
 
@@ -378,7 +377,7 @@ class RenderSystem : public SystemBase {
 
     bool initialize(ISystemContext* ctx) override {
         ctx_ = ctx;
-        ctx_->logger()->info("RenderSystem initialized");
+        CFW_LOG_INFO("RenderSystem initialized");
         return true;
     }
 
@@ -388,14 +387,12 @@ class RenderSystem : public SystemBase {
         // 每秒报告一次渲染统计
         if (frame_count_ % 60 == 0) {
             size_t entity_count = entities_->active_count();
-            ctx_->logger()->info("Render frame " + std::to_string(frame_count_) +
-                                 " - Entities: " + std::to_string(entity_count));
+            CFW_LOG_INFO("Render frame {} - Entities: {}", frame_count_, entity_count);
         }
     }
 
     void shutdown() override {
-        ctx_->logger()->info("RenderSystem shutdown - total frames: " +
-                             std::to_string(frame_count_));
+        CFW_LOG_INFO("RenderSystem shutdown - total frames: {}", frame_count_);
     }
 
    private:
@@ -421,7 +418,7 @@ class AudioSystem : public SystemBase {
         collision_subscription_ = ctx_->event_stream()->get_stream<CollisionEvent>()->subscribe();
         score_subscription_ = ctx_->event_stream()->get_stream<ScoreEvent>()->subscribe();
 
-        ctx_->logger()->info("AudioSystem initialized (EventStream mode)");
+        CFW_LOG_INFO("AudioSystem initialized (EventStream mode)");
         return true;
     }
 
@@ -438,8 +435,7 @@ class AudioSystem : public SystemBase {
     }
 
     void shutdown() override {
-        ctx_->logger()->info("AudioSystem shutdown - sounds played: " +
-                             std::to_string(sounds_played_));
+        CFW_LOG_INFO("AudioSystem shutdown - sounds played: {}", sounds_played_);
         collision_subscription_.close();
         score_subscription_.close();
     }
@@ -449,7 +445,7 @@ class AudioSystem : public SystemBase {
         sounds_played_++;
         // 实际游戏中这里会调用音频API
         if (sounds_played_ % 10 == 0) {
-            ctx_->logger()->debug("Playing sound: " + sound);
+            CFW_LOG_DEBUG("Playing sound: {}", sound);
         }
     }
 
@@ -486,7 +482,7 @@ class GameLogicSystem : public SystemBase {
         state_stream_ = ctx_->event_stream()->get_stream<GameStateEvent>();
         spawn_stream_ = ctx_->event_stream()->get_stream<EntitySpawnEvent>();
 
-        ctx_->logger()->info("GameLogicSystem initialized (EventStream mode)");
+        CFW_LOG_INFO("GameLogicSystem initialized (EventStream mode)");
         return true;
     }
 
@@ -518,8 +514,7 @@ class GameLogicSystem : public SystemBase {
 
     void shutdown() override {
         collision_subscription_.close();
-        ctx_->logger()->info("GameLogicSystem shutdown - final score: " +
-                             std::to_string(score_));
+        CFW_LOG_INFO("GameLogicSystem shutdown - final score: {}", score_);
     }
 
    private:
@@ -557,8 +552,7 @@ class GameLogicSystem : public SystemBase {
         state_ = new_state;
 
         std::string states[] = {"Loading", "Menu", "Playing", "Paused", "GameOver"};
-        ctx_->logger()->info("Game state: " + states[static_cast<int>(old_state)] +
-                             " -> " + states[static_cast<int>(new_state)]);
+        CFW_LOG_INFO("Game state: {} -> {}", states[static_cast<int>(old_state)], states[static_cast<int>(new_state)]);
 
         GameStateEvent evt{old_state, new_state};
         state_stream_->publish(evt);  // 使用 EventStream
@@ -570,7 +564,7 @@ class GameLogicSystem : public SystemBase {
         EntitySpawnEvent evt{player_id, "player", 400, 500};
         spawn_stream_->publish(evt);  // 使用 EventStream
 
-        ctx_->logger()->info("Player spawned at center");
+        CFW_LOG_INFO("Player spawned at center");
 
         // 初始生成几个敌人
         for (int i = 0; i < 3; ++i) {
@@ -603,7 +597,7 @@ class GameLogicSystem : public SystemBase {
             ScoreEvent score_evt{1, 100, score_};
             score_stream_->publish(score_evt);  // 使用 EventStream
 
-            ctx_->logger()->info("Enemy destroyed! Score: " + std::to_string(score_));
+            CFW_LOG_INFO("Enemy destroyed! Score: {}", score_);
         }
     }
 
@@ -651,12 +645,9 @@ int main() {
 
         auto* system_manager = context.system_manager();
         auto* event_bus = context.event_bus();
-        auto* logger = context.logger();
 
         // 设置日志级别
-        logger->set_level(LogLevel::info);
-        logger->info("=== Game Engine Starting ===");
-
+        CFW_LOG_INFO("=== Game Engine Starting ===");
         // 创建实体管理器
         EntityManager entity_manager;
 
@@ -689,14 +680,14 @@ int main() {
         });
 
         // 初始化所有系统
-        logger->info("Initializing all systems...");
+        CFW_LOG_INFO("Initializing all systems...");
         if (!system_manager->initialize_all()) {
-            logger->error("Failed to initialize systems");
+            CFW_LOG_ERROR("Failed to initialize systems");
             return 1;
         }
 
         // 启动游戏循环
-        logger->info("Starting game loop...");
+        CFW_LOG_INFO("Starting game loop...");
         system_manager->start_all();
 
         std::cout << "\n---> Game Running <---\n\n";
@@ -706,7 +697,7 @@ int main() {
 
         // 停止游戏
         std::cout << "\n---> Stopping Game <---\n\n";
-        logger->info("Stopping game loop...");
+        CFW_LOG_INFO("Stopping game loop...");
         system_manager->stop_all();
 
         // 清理
@@ -731,7 +722,7 @@ int main() {
 
         // 关闭
         system_manager->shutdown_all();
-        logger->info("=== Game Engine Stopped ===");
+        CFW_LOG_INFO("=== Game Engine Stopped ===");
         context.shutdown();
 
         std::cout << "\n游戏正常退出\n\n";

@@ -5,7 +5,6 @@
 namespace Corona::Kernel {
 
 // 前向声明
-class ILogger;
 class IEventBus;
 class IEventBusStream;
 class IVirtualFileSystem;
@@ -18,23 +17,23 @@ class ISystem;
  * ISystemContext 为系统提供对内核服务和其他系统的访问。
  * 在系统的 initialize() 阶段传入，系统可以保存此指针供后续使用。
  *
- * 特性：
- * - 服务访问：访问日志、事件总线、虚拟文件系统等核心服务
- * - 系统互访：通过名称获取其他系统（不推荐，优先使用事件通信）
- * - 时间信息：获取主线程的帧时间和帧号
+ * Characteristics:
+ * - Service access: Access to core services like event bus, virtual file system, etc.
+ * - System interaction: Get other systems by name (not recommended, prefer event communication)
+ * - Time information: Get main thread frame time and frame number
  *
- * 线程安全：
+ * Thread safety:
  * - 服务访问器是线程安全的
  * - get_system() 可能涉及锁，应谨慎使用
  * - 时间信息会在每帧更新，多线程访问可能读到不一致的值
  *
- * 使用示例：
+ * Usage example:
  * @code
  * class MySystem : public SystemBase {
  * public:
  *     bool initialize(ISystemContext* ctx) override {
  *         context_ = ctx;
- *         context_->logger()->info("MySystem 初始化");
+ *         CFW_LOG_INFO("MySystem initialized");
  *         return true;
  *     }
  *
@@ -55,14 +54,6 @@ class ISystemContext {
     // ========================================
     // 内核服务访问
     // ========================================
-
-    /**
-     * @brief 获取日志系统
-     * @return 日志系统指针
-     *
-     * 用于在系统中记录日志
-     */
-    virtual ILogger* logger() = 0;
 
     /**
      * @brief 获取事件总线

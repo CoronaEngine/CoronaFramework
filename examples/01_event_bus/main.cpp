@@ -49,7 +49,6 @@ int main() {
     }
 
     auto* event_bus = kernel.event_bus();
-    auto* logger = kernel.logger();
 
     // ========================================
     // 示例 1: 基本订阅和发布
@@ -104,9 +103,8 @@ int main() {
     // ========================================
     std::cout << "[Example 3] Event Logging" << std::endl;
 
-    event_bus->subscribe<ConfigChangedEvent>([logger](const ConfigChangedEvent& evt) {
-        logger->info("Config changed: " + evt.key + " = " + evt.new_value +
-                     " (was: " + evt.old_value + ")");
+    event_bus->subscribe<ConfigChangedEvent>([](const ConfigChangedEvent& evt) {
+        CFW_LOG_INFO("Config changed: {} = {} (was: {})", evt.key, evt.new_value, evt.old_value);
     });
 
     event_bus->publish(ConfigChangedEvent{"volume", "50", "80"});

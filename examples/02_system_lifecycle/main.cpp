@@ -58,7 +58,7 @@ class RenderSystem : public SystemBase {
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
         if (frame_count_ % 60 == 0 && frame_count_ > 0) {
-            ctx_->logger()->info("RenderSystem: Rendered " + std::to_string(frame_count_) + " frames");
+            CFW_LOG_INFO("RenderSystem: Rendered {} frames", frame_count_);
         }
     }
 
@@ -96,8 +96,7 @@ class PhysicsSystem : public SystemBase {
         update_count_++;
 
         if (update_count_ % 60 == 0 && update_count_ > 0) {
-            ctx_->logger()->info("PhysicsSystem: Simulated " +
-                                 std::to_string(simulation_time_) + " seconds");
+            CFW_LOG_INFO("PhysicsSystem: Simulated {} seconds", simulation_time_);
         }
     }
 
@@ -203,7 +202,6 @@ int main() {
 
     auto* system_manager = kernel.system_manager();
     auto* event_bus = kernel.event_bus();
-    auto* logger = kernel.logger();
 
     // ========================================
     // 示例 1: 注册系统

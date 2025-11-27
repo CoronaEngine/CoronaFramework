@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "../test_framework.h"
+#include "corona/kernel/core/i_logger.h"
 #include "corona/kernel/core/kernel_context.h"
 #include "corona/kernel/event/i_event_bus.h"
 #include "corona/kernel/system/i_system_manager.h"
@@ -94,15 +95,9 @@ TEST(Benchmark, EventBusPublishSubscribe) {
     ASSERT_EQ(event_count, iterations);
 
     // 输出性能指标
-    auto* logger = kernel.logger();
-    if (logger) {
-        logger->info("EventBus: Published " + std::to_string(iterations) +
-                     " events in " + std::to_string(elapsed) + " ms");
-        logger->info("EventBus: Average " + std::to_string(elapsed / iterations) +
-                     " ms per event");
-        logger->info("EventBus: Throughput " + std::to_string(iterations / elapsed * 1000) +
-                     " events/sec");
-    }
+    CFW_LOG_INFO("EventBus: Published {} events in {} ms", iterations, elapsed);
+    CFW_LOG_INFO("EventBus: Average {} ms per event", elapsed / iterations);
+    CFW_LOG_INFO("EventBus: Throughput {} events/sec", iterations / elapsed * 1000);
 
     // 期望:至少每个事件 < 0.1ms (10,000 events/sec)
     ASSERT_LT(elapsed / iterations, 0.1);
@@ -142,13 +137,8 @@ TEST(Benchmark, EventBusMultipleSubscribers) {
         ASSERT_EQ(count, iterations);
     }
 
-    auto* logger = kernel.logger();
-    if (logger) {
-        logger->info("EventBus (100 subscribers): Published " + std::to_string(iterations) +
-                     " events in " + std::to_string(elapsed) + " ms");
-        logger->info("EventBus: Average " + std::to_string(elapsed / iterations) +
-                     " ms per event");
-    }
+    CFW_LOG_INFO("EventBus (100 subscribers): Published {} events in {} ms", iterations, elapsed);
+    CFW_LOG_INFO("EventBus: Average {} ms per event", elapsed / iterations);
 
     // 期望:即使有100个订阅者,每个事件也应 < 1ms
     ASSERT_LT(elapsed / iterations, 1.0);
@@ -184,13 +174,10 @@ TEST(Benchmark, SystemManagerSorting) {
     ASSERT_TRUE(system_manager->initialize_all());
     double init_time = timer.elapsed_ms();
 
-    auto* logger = kernel.logger();
-    if (logger) {
-        logger->info("SystemManager (" + std::to_string(system_count) + " systems):");
-        logger->info("  Register time: " + std::to_string(register_time) + " ms");
-        logger->info("  Initialize time (includes sorting): " + std::to_string(init_time) + " ms");
-        logger->info("  Average register: " + std::to_string(register_time / system_count) + " ms/system");
-    }
+    CFW_LOG_INFO("SystemManager ({} systems):", system_count);
+    CFW_LOG_INFO("  Register time: {} ms", register_time);
+    CFW_LOG_INFO("  Initialize time (includes sorting): {} ms", init_time);
+    CFW_LOG_INFO("  Average register: {} ms/system", register_time / system_count);
 
     // 期望:注册操作应该非常快(不触发排序)
     ASSERT_LT(register_time / system_count, 0.1);  // 每个系统注册 < 0.1ms
@@ -219,13 +206,8 @@ TEST(Benchmark, SystemManagerRegistration) {
     }
     double elapsed = timer.elapsed_ms();
 
-    auto* logger = kernel.logger();
-    if (logger) {
-        logger->info("SystemManager: Registered " + std::to_string(system_count) +
-                     " systems in " + std::to_string(elapsed) + " ms");
-        logger->info("SystemManager: Average " + std::to_string(elapsed / system_count) +
-                     " ms per system");
-    }
+    CFW_LOG_INFO("SystemManager: Registered {} systems in {} ms", system_count, elapsed);
+    CFW_LOG_INFO("SystemManager: Average {} ms per system", elapsed / system_count);
 
     // 期望:每个系统注册 < 0.01ms
     ASSERT_LT(elapsed / system_count, 0.01);
@@ -258,13 +240,8 @@ TEST(Benchmark, SystemManagerLookup) {
     }
     double elapsed = timer.elapsed_ms();
 
-    auto* logger = kernel.logger();
-    if (logger) {
-        logger->info("SystemManager: " + std::to_string(lookup_count) +
-                     " lookups in " + std::to_string(elapsed) + " ms");
-        logger->info("SystemManager: Average " + std::to_string(elapsed / lookup_count) +
-                     " ms per lookup");
-    }
+    CFW_LOG_INFO("SystemManager: {} lookups in {} ms", lookup_count, elapsed);
+    CFW_LOG_INFO("SystemManager: Average {} ms per lookup", elapsed / lookup_count);
 
     // 期望:每次查找 < 0.01ms (使用 map O(log n))
     ASSERT_LT(elapsed / lookup_count, 0.01);
@@ -291,13 +268,8 @@ TEST(Benchmark, EventAllocation) {
     }
     double elapsed = timer.elapsed_ms();
 
-    auto* logger = kernel.logger();
-    if (logger) {
-        logger->info("Memory: Allocated " + std::to_string(iterations) +
-                     " events in " + std::to_string(elapsed) + " ms");
-        logger->info("Memory: Average " + std::to_string(elapsed / iterations) +
-                     " ms per allocation");
-    }
+    CFW_LOG_INFO("Memory: Allocated {} events in {} ms", iterations, elapsed);
+    CFW_LOG_INFO("Memory: Average {} ms per allocation", elapsed / iterations);
 
     // 期望:栈分配非常快 < 0.0001ms
     ASSERT_LT(elapsed / iterations, 0.0001);

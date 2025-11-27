@@ -44,7 +44,6 @@ int main() {
     }
 
     auto* vfs = kernel.vfs();
-    auto* logger = kernel.logger();
 
     // 获取当前工作目录
     auto current_dir = std::filesystem::current_path();
@@ -91,7 +90,7 @@ int main() {
 })";
 
     if (vfs->write_file("/config/game_settings.json", string_to_bytes(config_content))) {
-        logger->info("[OK] Created config file: /config/game_settings.json");
+        CFW_LOG_INFO("[OK] Created config file: /config/game_settings.json");
     }
 
     // 写入玩家数据
@@ -104,13 +103,13 @@ int main() {
 })";
 
     if (vfs->write_file("/data/player.json", string_to_bytes(player_data))) {
-        logger->info("[OK] Created data file: /data/player.json");
+        CFW_LOG_INFO("[OK] Created data file: /data/player.json");
     }
 
     // 写入存档
     std::string save_data = "SAVE_DATA_v1|2025-01-15|Level:10|HP:100/100|MP:50/50";
     if (vfs->write_file("/saves/save_001.dat", string_to_bytes(save_data))) {
-        logger->info("[OK] Created save file: /saves/save_001.dat");
+        CFW_LOG_INFO("[OK] Created save file: /saves/save_001.dat");
     }
 
     std::cout << std::endl;
@@ -131,7 +130,7 @@ int main() {
     // 读取玩家数据
     auto player_bytes = vfs->read_file("/data/player.json");
     if (!player_bytes.empty()) {
-        logger->info("[OK] Loaded player data (" + std::to_string(player_bytes.size()) + " bytes)");
+        CFW_LOG_INFO("[OK] Loaded player data ({} bytes)", player_bytes.size());
     }
 
     std::cout << std::endl;
@@ -180,11 +179,11 @@ int main() {
 
     // 创建目录
     if (vfs->create_directory("/config/backup/")) {
-        logger->info("[OK] Created directory: /config/backup/");
+        CFW_LOG_INFO("[OK] Created directory: /config/backup/");
     }
 
     if (vfs->create_directory("/data/cache/temp/")) {
-        logger->info("[OK] Created nested directory: /data/cache/temp/");
+        CFW_LOG_INFO("[OK] Created nested directory: /data/cache/temp/");
     }
 
     // 列出目录内容
@@ -246,7 +245,7 @@ int main() {
 
     // 保存默认配置
     vfs->write_file("/config/default_settings.json", string_to_bytes(default_config));
-    logger->info("[OK] Saved default configuration");
+    CFW_LOG_INFO("[OK] Saved default configuration");
 
     // 用户自定义配置(覆盖部分默认值)
     std::string user_config = R"({
@@ -259,7 +258,7 @@ int main() {
 })";
 
     vfs->write_file("/config/user_settings.json", string_to_bytes(user_config));
-    logger->info("[OK] Saved user configuration");
+    CFW_LOG_INFO("[OK] Saved user configuration");
 
     // 读取配置
     auto default_cfg = vfs->read_file("/config/default_settings.json");
@@ -278,7 +277,7 @@ int main() {
     std::cout << "[Example 9] Unmount Paths" << std::endl;
 
     vfs->unmount("/assets/models/");
-    logger->info("[OK] Unmounted /assets/models/");
+    CFW_LOG_INFO("[OK] Unmounted /assets/models/");
 
     // 尝试访问已卸载的路径
     if (!vfs->exists("/assets/models/character.obj")) {

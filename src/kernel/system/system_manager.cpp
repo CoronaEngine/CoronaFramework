@@ -23,10 +23,6 @@ class SystemContext : public ISystemContext {
           main_thread_delta_time_(0.0f),
           main_thread_frame_number_(0) {}
 
-    ILogger* logger() override {
-        return KernelContext::instance().logger();
-    }
-
     IEventBus* event_bus() override {
         return KernelContext::instance().event_bus();
     }
@@ -111,17 +107,11 @@ class SystemManager : public ISystemManager {
         // 初始化所有系统
         for (auto& system : systems_) {
             if (!system->initialize(context_.get())) {
-                auto* logger = context_->logger();
-                if (logger) {
-                    logger->error("Failed to initialize system: " + std::string(system->get_name()));
-                }
+                CFW_LOG_ERROR("Failed to initialize system: {}", system->get_name());
                 return false;
             }
 
-            auto* logger = context_->logger();
-            if (logger) {
-                logger->info("Initialized system: " + std::string(system->get_name()));
-            }
+            CFW_LOG_INFO("Initialized system: {}", system->get_name());
         }
 
         return true;
@@ -131,11 +121,7 @@ class SystemManager : public ISystemManager {
         std::lock_guard<std::mutex> lock(mutex_);
         for (auto& system : systems_) {
             system->start();
-
-            auto* logger = context_->logger();
-            if (logger) {
-                logger->info("Started system: " + std::string(system->get_name()));
-            }
+            CFW_LOG_INFO("Started system: {}", system->get_name());
         }
     }
 
@@ -158,11 +144,7 @@ class SystemManager : public ISystemManager {
         // 按相反顺序停止
         for (auto it = systems_.rbegin(); it != systems_.rend(); ++it) {
             (*it)->stop();
-
-            auto* logger = context_->logger();
-            if (logger) {
-                logger->info("Stopped system: " + std::string((*it)->get_name()));
-            }
+            CFW_LOG_INFO("Stopped system: {}", (*it)->get_name());
         }
     }
 
@@ -171,11 +153,7 @@ class SystemManager : public ISystemManager {
         // 按相反顺序关闭
         for (auto it = systems_.rbegin(); it != systems_.rend(); ++it) {
             (*it)->shutdown();
-
-            auto* logger = context_->logger();
-            if (logger) {
-                logger->info("Shutdown system: " + std::string((*it)->get_name()));
-            }
+            CFW_LOG_INFO("Shutdown system: {}", (*it)->get_name());
         }
     }
 

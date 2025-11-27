@@ -1,273 +1,119 @@
 #pragma once
-#include <memory>
-#include <source_location>
-#include <string_view>
-
-#include "i_sink.h"
+#include "quill/Logger.h"
 
 namespace Corona::Kernel {
 
 /**
- * @brief 日志系统接口
- *
- * ILogger 是引擎的核心日志系统，支持多个输出目标（Sink）和不同级别的日志。
- *
- * 特性：
- * - 支持多个输出目标（控制台、文件等）
- * - 自动捕获源代码位置信息（C++20 source_location）
- * - 线程安全的日志输出
- * - 可配置的日志级别过滤
- *
- * 使用示例：
- * @code
- * auto logger = KernelContext::instance().logger();
- * logger->info("程序启动");
- * logger->warning("配置文件未找到，使用默认配置");
- * logger->error("网络连接失败");
- * @endcode
+ * @brief 日志级别枚举
  */
-class ILogger {
-   public:
-    virtual ~ILogger() = default;
-
-    /**
-     * @brief 记录一条日志
-     * @param level 日志级别
-     * @param message 日志内容
-     * @param location 源代码位置，默认为调用点
-     */
-    virtual void log(LogLevel level, std::string_view message,
-                     const std::source_location& location) = 0;
-
-    // ========================================
-    // Sink 管理
-    // ========================================
-
-    /**
-     * @brief 添加日志输出目标
-     * @param sink 新的输出目标（如控制台 Sink、文件 Sink）
-     *
-     * 可以添加多个 Sink，每条日志会分发到所有 Sink
-     */
-    virtual void add_sink(std::shared_ptr<ISink> sink) = 0;
-
-    /**
-     * @brief 移除所有日志输出目标
-     *
-     * 调用后日志将不再输出到任何位置
-     */
-    virtual void remove_all_sinks() = 0;
-
-    /**
-     * @brief 重置日志系统到初始状态
-     *
-     * 移除所有 Sink 并添加默认的控制台 Sink，用于测试清理或重新初始化
-     */
-    virtual void reset() = 0;
-
-    // ========================================
-    // 便捷方法
-    // ========================================
-
-    /**
-     * @brief 记录跟踪级别日志
-     * @param message 日志内容
-     * @param location 源代码位置，自动捕获
-     */
-    void trace(std::string_view message, const std::source_location& location = std::source_location::current()) {
-        log(LogLevel::trace, message, location);
-    }
-
-    /**
-     * @brief 记录调试级别日志
-     * @param message 日志内容
-     * @param location 源代码位置，自动捕获
-     */
-    void debug(std::string_view message, const std::source_location& location = std::source_location::current()) {
-        log(LogLevel::debug, message, location);
-    }
-
-    /**
-     * @brief 记录信息级别日志
-     * @param message 日志内容
-     * @param location 源代码位置，自动捕获
-     */
-    void info(std::string_view message, const std::source_location& location = std::source_location::current()) {
-        log(LogLevel::info, message, location);
-    }
-
-    /**
-     * @brief 记录警告级别日志
-     * @param message 日志内容
-     * @param location 源代码位置，自动捕获
-     */
-    void warning(std::string_view message, const std::source_location& location = std::source_location::current()) {
-        log(LogLevel::warning, message, location);
-    }
-
-    /**
-     * @brief 记录错误级别日志
-     * @param message 日志内容
-     * @param location 源代码位置，自动捕获
-     */
-    void error(std::string_view message, const std::source_location& location = std::source_location::current()) {
-        log(LogLevel::error, message, location);
-    }
-
-    /**
-     * @brief 记录致命级别日志
-     * @param message 日志内容
-     * @param location 源代码位置，自动捕获
-     */
-    void fatal(std::string_view message, const std::source_location& location = std::source_location::current()) {
-        log(LogLevel::fatal, message, location);
-    }
-
-    /**
-     * @brief 设置全局最低日志级别
-     * @param level 新的最低日志级别
-     *
-     * 低于此级别的日志不会被处理（在 Logger 层面过滤）
-     */
-    virtual void set_level(LogLevel level) = 0;
-
-    /**
-     * @brief 获取全局最低日志级别
-     * @return 当前设置的最低日志级别
-     */
-    virtual LogLevel get_level() const = 0;
+enum class LogLevel {
+    trace,    ///< 跟踪级别，最详细的调试信息
+    debug,    ///< 调试级别，用于开发调试
+    info,     ///< 信息级别，常规运行信息
+    warning,  ///< 警告级别，潜在问题
+    error,    ///< 错误级别，错误但不致命
+    fatal     ///< 致命级别，严重错误导致程序无法继续
 };
 
-// ========================================
-// 工厂函数
-// ========================================
-
 /**
- * @brief 创建日志系统实例
- * @return 日志系统的唯一指针
- */
-std::unique_ptr<ILogger> create_logger();
-
-/**
- * @brief 创建控制台输出 Sink
- * @return 控制台 Sink 的共享指针
+ * @brief Corona 日志系统 - Quill 的轻量封装
  *
- * 输出到标准输出（stdout），同步输出
- */
-std::shared_ptr<ISink> create_console_sink();
-
-/**
- * @brief 创建文件输出 Sink
- * @param filename 日志文件路径
- * @return 文件 Sink 的共享指针
- *
- * 输出到文件，异步写入，带缓冲
- */
-std::shared_ptr<ISink> create_file_sink(std::string_view filename);
-
-// ========================================
-// 静态全局日志器
-// ========================================
-
-/**
- * @brief 静态全局日志器封装类
- *
- * CoronaLogger 提供静态方法访问全局默认日志器，简化日志调用流程。
- * 内部拥有独立的日志器实例（懒加载单例），首次调用时自动创建。
+ * CoronaLogger 直接使用 Quill 日志库，提供零开销的日志记录。
  *
  * 特性：
- * - 线程安全：使用 Meyers 单例模式，首次访问时自动初始化
- * - 独立生命周期：日志器由 CoronaLogger 管理，无需外部设置
- * - 默认配置：自动添加控制台输出 Sink
+ * - 完全异步，无锁设计
+ * - 自动捕获源代码位置信息（编译期宏展开）
+ * - 线程安全的日志输出
+ * - 极低延迟（~10-15ns）
+ * - 支持格式化字符串（libfmt 语法）
  *
  * 使用示例：
  * @code
- * // 直接使用静态方法记录日志（无需初始化）
- * CoronaLogger::info("程序启动");
- * CoronaLogger::warning("配置文件未找到");
- * CoronaLogger::error("网络连接失败");
+ * #include "corona/kernel/core/i_logger.h"
  *
- * // 也可以获取日志器进行高级配置
- * auto* logger = CoronaLogger::get_default();
- * logger->add_sink(create_file_sink("app.log"));
+ * CFW_LOG_INFO("程序启动");
+ * CFW_LOG_WARNING("配置文件未找到，使用默认值: {}", default_value);
+ * CFW_LOG_ERROR("网络连接失败，错误码: {}", error_code);
  * @endcode
  */
 class CoronaLogger {
    public:
     /**
-     * @brief 获取默认日志器
-     * @return 默认日志器指针，永不为空
+     * @brief 初始化日志系统
      *
-     * 首次调用时自动创建日志器实例（线程安全）
+     * 通常由 KernelContext 自动调用，也可手动调用确保初始化
+     * 多次调用是安全的（使用 std::call_once）
+     *
+     * 自动创建：
+     * - 控制台 Sink（输出到 stdout）
+     * - 文件 Sink（格式: YYYY-MM-DD_HH-MM-SS_corona.log）
      */
-    static ILogger* get_default() noexcept;
-
-    // ========================================
-    // 便捷静态方法
-    // ========================================
-
-    /**
-     * @brief 记录跟踪级别日志
-     * @param message 日志内容
-     * @param location 源代码位置，自动捕获
-     */
-    static void trace(std::string_view message,
-                      const std::source_location& location = std::source_location::current()) {
-        get_default()->log(LogLevel::trace, message, location);
-    }
+    static void initialize();
 
     /**
-     * @brief 记录调试级别日志
-     * @param message 日志内容
-     * @param location 源代码位置，自动捕获
+     * @brief 设置日志级别
+     * @param level 最低日志级别
      */
-    static void debug(std::string_view message,
-                      const std::source_location& location = std::source_location::current()) {
-        get_default()->log(LogLevel::debug, message, location);
-    }
+    static void set_log_level(LogLevel level);
 
     /**
-     * @brief 记录信息级别日志
-     * @param message 日志内容
-     * @param location 源代码位置，自动捕获
+     * @brief 刷新所有待处理的日志
+     *
+     * 强制将缓冲区的日志立即写入（通常用于程序退出前）
      */
-    static void info(std::string_view message,
-                     const std::source_location& location = std::source_location::current()) {
-        get_default()->log(LogLevel::info, message, location);
-    }
+    static void flush();
 
     /**
-     * @brief 记录警告级别日志
-     * @param message 日志内容
-     * @param location 源代码位置，自动捕获
+     * @brief 获取底层 Quill Logger（高级用户）
+     * @return Quill logger 指针，用于直接调用 Quill API
      */
-    static void warning(std::string_view message,
-                        const std::source_location& location = std::source_location::current()) {
-        get_default()->log(LogLevel::warning, message, location);
-    }
-
-    /**
-     * @brief 记录错误级别日志
-     * @param message 日志内容
-     * @param location 源代码位置，自动捕获
-     */
-    static void error(std::string_view message,
-                      const std::source_location& location = std::source_location::current()) {
-        get_default()->log(LogLevel::error, message, location);
-    }
-
-    /**
-     * @brief 记录致命级别日志
-     * @param message 日志内容
-     * @param location 源代码位置，自动捕获
-     */
-    static void fatal(std::string_view message,
-                      const std::source_location& location = std::source_location::current()) {
-        get_default()->log(LogLevel::fatal, message, location);
-    }
+    static quill::Logger* get_logger();
 
    private:
     CoronaLogger() = delete;
 };
 
 }  // namespace Corona::Kernel
+
+// ========================================
+// 日志宏 - 推荐使用方式
+// ========================================
+
+// 包含 Quill 宏定义
+#include "quill/LogMacros.h"
+
+/**
+ * @brief 跟踪级别日志（最详细）
+ * 示例: CFW_LOG_TRACE("Processing item {}/{}", current, total);
+ */
+#define CFW_LOG_TRACE(fmt, ...) LOG_TRACE_L3(::Corona::Kernel::CoronaLogger::get_logger(), fmt, ##__VA_ARGS__)
+
+/**
+ * @brief 调试级别日志
+ * 示例: CFW_LOG_DEBUG("Variable value: {}", value);
+ */
+#define CFW_LOG_DEBUG(fmt, ...) LOG_DEBUG(::Corona::Kernel::CoronaLogger::get_logger(), fmt, ##__VA_ARGS__)
+
+/**
+ * @brief 信息级别日志
+ * 示例: CFW_LOG_INFO("Application started successfully");
+ */
+#define CFW_LOG_INFO(fmt, ...) LOG_INFO(::Corona::Kernel::CoronaLogger::get_logger(), fmt, ##__VA_ARGS__)
+
+/**
+ * @brief 警告级别日志
+ * 示例: CFW_LOG_WARNING("Configuration file not found");
+ */
+#define CFW_LOG_WARNING(fmt, ...) LOG_WARNING(::Corona::Kernel::CoronaLogger::get_logger(), fmt, ##__VA_ARGS__)
+
+/**
+ * @brief 错误级别日志
+ * 示例: CFW_LOG_ERROR("Failed to connect: {}", error_message);
+ */
+#define CFW_LOG_ERROR(fmt, ...) LOG_ERROR(::Corona::Kernel::CoronaLogger::get_logger(), fmt, ##__VA_ARGS__)
+
+/**
+ * @brief 致命错误级别日志
+ * 示例: CFW_LOG_FATAL("Critical system failure: {}", reason);
+ */
+#define CFW_LOG_FATAL(fmt, ...) LOG_CRITICAL(::Corona::Kernel::CoronaLogger::get_logger(), fmt, ##__VA_ARGS__)
