@@ -4,7 +4,6 @@
 
 #include <array>
 #include <atomic>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <list>
@@ -15,13 +14,12 @@
 #include <utility>
 
 #include "corona/kernel/core/i_logger.h"
-#include "corona/kernel/utils/stack_trace.h"
 #include "corona/pal/cfw_platform.h"
 
 // 超时锁配置（用于死锁检测）
 #ifndef CFW_LOCK_TIMEOUT_MS
 #ifdef NDEBUG
-#define CFW_LOCK_TIMEOUT_MS 10000  // 生产环境 10 秒
+#define CFW_LOCK_TIMEOUT_MS 2000  // 生产环境 2 秒
 #else
 #define CFW_LOCK_TIMEOUT_MS 200  // 调试环境 0.2 秒
 #endif
@@ -136,17 +134,13 @@ class Storage {
         ReadHandle(const T* ptr, std::shared_lock<std::shared_timed_mutex>&& lock)
             : ptr_(ptr), lock_(std::move(lock)) {
 #if CFW_ENABLE_LOCK_LOGGING
-            Corona::Kernel::CoronaLogger::debug(std::format("ReadHandle acquire lock for ptr addr: {}, stack trace:\n{}",
-                                                            reinterpret_cast<std::uintptr_t>(ptr_),
-                                                            capture_stack_trace()));
+            CFW_LOG_DEBUG("ReadHandle acquire lock for ptr addr: {}", reinterpret_cast<std::uintptr_t>(ptr_));
 #endif
         }
 
         ~ReadHandle() {
 #if CFW_ENABLE_LOCK_LOGGING
-            Corona::Kernel::CoronaLogger::debug(std::format("ReadHandle release lock for ptr addr: {}, stack trace:\n{}",
-                                                            reinterpret_cast<std::uintptr_t>(ptr_),
-                                                            capture_stack_trace()));
+            CFW_LOG_DEBUG("ReadHandle release lock for ptr addr: {}", reinterpret_cast<std::uintptr_t>(ptr_));
 #endif
         }
 
@@ -176,17 +170,13 @@ class Storage {
         WriteHandle(T* ptr, std::unique_lock<std::shared_timed_mutex>&& lock)
             : ptr_(ptr), lock_(std::move(lock)) {
 #if CFW_ENABLE_LOCK_LOGGING
-            Corona::Kernel::CoronaLogger::debug(std::format("WriteHandle acquire lock for ptr addr: {}, stack trace:\n{}",
-                                                            reinterpret_cast<std::uintptr_t>(ptr_),
-                                                            capture_stack_trace()));
+            CFW_LOG_DEBUG("WriteHandle acquire lock for ptr addr: {}", reinterpret_cast<std::uintptr_t>(ptr_));
 #endif
         }
 
         ~WriteHandle() {
 #if CFW_ENABLE_LOCK_LOGGING
-            Corona::Kernel::CoronaLogger::debug(std::format("WriteHandle release lock for ptr addr: {}, stack trace:\n{}",
-                                                            reinterpret_cast<std::uintptr_t>(ptr_),
-                                                            capture_stack_trace()));
+            CFW_LOG_DEBUG("WriteHandle release lock for ptr addr: {}", reinterpret_cast<std::uintptr_t>(ptr_));
 #endif
         }
 
