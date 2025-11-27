@@ -65,7 +65,7 @@ void initialize_impl() {
     // 配置日志格式: [时间戳][线程ID][级别][文件:行号] 消息
     quill::PatternFormatterOptions formatter_options;
     formatter_options.format_pattern = "[%(time)][%(thread_id)][%(log_level)][%(file_name):%(line_number)] %(message)";
-    formatter_options.timestamp_pattern = "%Y-%m-%d %H:%M:%S.%Qms";
+    formatter_options.timestamp_pattern = "%Y-%m-%dT%H:%M:%S.%Qms";
     formatter_options.timestamp_timezone = quill::Timezone::LocalTime;
 
     // 创建控制台 Sink
