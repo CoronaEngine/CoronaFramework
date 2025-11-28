@@ -101,6 +101,12 @@ class CoronaLogger {
 #define CFW_LOG_INFO(fmt, ...) LOG_INFO(::Corona::Kernel::CoronaLogger::get_logger(), fmt, ##__VA_ARGS__)
 
 /**
+ * @brief 通知级别日志
+ * 示例: CFW_LOG_NOTICE("User {} logged in", username);
+ */
+#define CFW_LOG_NOTICE(fmt, ...) LOG_NOTICE(::Corona::Kernel::CoronaLogger::get_logger(), fmt, ##__VA_ARGS__)
+
+/**
  * @brief 警告级别日志
  * 示例: CFW_LOG_WARNING("Configuration file not found");
  */

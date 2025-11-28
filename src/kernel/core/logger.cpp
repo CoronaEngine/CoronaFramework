@@ -92,8 +92,16 @@ void initialize_impl() {
         std::move(sinks),
         formatter_options);
 
-    // 默认日志级别为 Info
+// 设置默认日志级别
+#ifndef CORONA_LOG_LEVEL
+#ifdef _DEBUG
+    g_logger->set_log_level(quill::LogLevel::Debug);
+#else
     g_logger->set_log_level(quill::LogLevel::Info);
+#endif
+#else
+    g_logger->set_log_level(to_quill_level(static_cast<LogLevel>(CORONA_LOG_LEVEL)));
+#endif
 }
 
 }  // namespace
