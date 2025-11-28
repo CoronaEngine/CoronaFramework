@@ -15,6 +15,7 @@
 
 #include "corona/kernel/core/i_logger.h"
 #include "corona/pal/cfw_platform.h"
+#include "stack_trace.h"
 
 // 超时锁配置（用于死锁检测）
 #ifndef CFW_LOCK_TIMEOUT_MS
@@ -25,6 +26,7 @@
 #endif
 #endif
 
+// #define CFW_ENABLE_LOCK_TIMEOUT 1
 // 锁超时功能开关
 #ifndef CFW_ENABLE_LOCK_TIMEOUT
 #define CFW_ENABLE_LOCK_TIMEOUT 0  // 默认关闭，设为 1 则使用超时锁
@@ -421,7 +423,7 @@ class Storage {
                     "Lock timeout during acquire_read for object " + std::to_string(id) +
                     " after " + std::to_string(CFW_LOCK_TIMEOUT_MS) + "ms - possible deadlock detected\n" +
                     stack_info;
-                CoronaLogger::error(error_msg);
+                CFW_LOG_CRITICAL("{}", error_msg);
                 throw std::runtime_error(error_msg);
             }
 #else
@@ -468,7 +470,7 @@ class Storage {
                     "Lock timeout during acquire_write for object " + std::to_string(id) +
                     " after " + std::to_string(CFW_LOCK_TIMEOUT_MS) + "ms - possible deadlock detected\n" +
                     stack_info;
-                CoronaLogger::error(error_msg);
+                CFW_LOG_CRITICAL("{}", error_msg);
                 throw std::runtime_error(error_msg);
             }
 #else

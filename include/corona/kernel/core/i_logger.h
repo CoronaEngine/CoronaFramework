@@ -120,6 +120,6 @@ class CoronaLogger {
 
 /**
  * @brief 致命错误级别日志
- * 示例: CFW_LOG_FATAL("Critical system failure: {}", reason);
+ * 示例: CFW_LOG_CRITICAL("Critical system failure: {}", reason);
  */
-#define CFW_LOG_FATAL(fmt, ...) LOG_CRITICAL(::Corona::Kernel::CoronaLogger::get_logger(), fmt, ##__VA_ARGS__)
+#define CFW_LOG_CRITICAL(fmt, ...) LOG_CRITICAL(::Corona::Kernel::CoronaLogger::get_logger(), fmt, ##__VA_ARGS__)
