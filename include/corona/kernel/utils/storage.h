@@ -336,6 +336,11 @@ class Storage {
             }
             buffer_count_.fetch_add(1, std::memory_order_relaxed);
             lock.unlock();
+            CFW_LOG_DEBUG("Storage<{},{},{}> expanded: new capacity = {}",
+                          typeid(T).name(),
+                          BufferCapacity,
+                          InitialBuffers,
+                          capacity());
 
             // 再次尝试分配
             if (!free_slots_.try_pop(id)) {
