@@ -330,21 +330,22 @@ class Storage {
         if (!free_slots_.try_pop(id)) {
             // 扩容
             std::unique_lock lock(list_mutex_);
-            buffers_.emplace_back();
-            for (std::size_t j = 0; j < BufferCapacity; ++j) {
-                free_slots_.push(reinterpret_cast<ObjectId>(&(buffers_.back().buffer[j])));
-            }
-            buffer_count_.fetch_add(1, std::memory_order_relaxed);
-            lock.unlock();
-            CFW_LOG_DEBUG("Storage<{},{},{}> expanded: new capacity = {}",
-                          typeid(T).name(),
-                          BufferCapacity,
-                          InitialBuffers,
-                          capacity());
-
-            // 再次尝试分配
+            // 双重检查，防止竞争条件
             if (!free_slots_.try_pop(id)) {
-                return 0;  // 分配失败
+                buffers_.emplace_back();
+                for (std::size_t j = 0; j < BufferCapacity; ++j) {
+                    free_slots_.push(reinterpret_cast<ObjectId>(&(buffers_.back().buffer[j])));
+                }
+                buffer_count_.fetch_add(1, std::memory_order_relaxed);
+                CFW_LOG_DEBUG("Storage<{},{},{}> expanded: new capacity = {}",
+                              typeid(T).name(),
+                              BufferCapacity,
+                              InitialBuffers,
+                              capacity());
+                // 再次尝试分配
+                if (!free_slots_.try_pop(id)) {
+                    return 0;  // 分配失败
+                }
             }
         }
 
