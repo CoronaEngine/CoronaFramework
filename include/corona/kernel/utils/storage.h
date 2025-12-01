@@ -326,7 +326,7 @@ class Storage {
      */
     [[nodiscard]]
     ObjectId allocate() {
-        ObjectId id;
+        ObjectId id{};
         if (!free_slots_.try_pop(id)) {
             // 扩容
             std::unique_lock lock(list_mutex_);
@@ -337,13 +337,19 @@ class Storage {
                     free_slots_.push(reinterpret_cast<ObjectId>(&(buffers_.back().buffer[j])));
                 }
                 buffer_count_.fetch_add(1, std::memory_order_relaxed);
-                CFW_LOG_DEBUG("Storage<{},{},{}> expanded: new capacity = {}",
+                CFW_LOG_DEBUG("Storage<{},{},{}> expanded: new capacity = {} * {} = {}",
                               typeid(T).name(),
                               BufferCapacity,
                               InitialBuffers,
+                              buffer_count_.load(std::memory_order_relaxed),
+                              BufferCapacity,
                               capacity());
                 // 再次尝试分配
                 if (!free_slots_.try_pop(id)) {
+                    CFW_LOG_ERROR("Storage<{},{},{}> allocation failed after expansion",
+                                  typeid(T).name(),
+                                  BufferCapacity,
+                                  InitialBuffers);
                     return 0;  // 分配失败
                 }
             }
@@ -351,13 +357,18 @@ class Storage {
 
         // 初始化槽位
         T* ptr = reinterpret_cast<T*>(id);
-        auto [index, parent_buffer] = get_parent_buffer(id);
+        auto [buffer_idx, parent_buffer] = get_parent_buffer(id);
 
         if (parent_buffer) {
-            std::size_t index = (id - reinterpret_cast<ObjectId>(&(parent_buffer->buffer[0]))) / sizeof(T);
-            std::unique_lock slot_lock(parent_buffer->mutexes[index]);
-            *ptr = T{};
-            parent_buffer->occupied[index].store(true, std::memory_order_release);
+            std::size_t slot_index = (id - reinterpret_cast<ObjectId>(&(parent_buffer->buffer[0]))) / sizeof(T);
+            std::unique_lock slot_lock(parent_buffer->mutexes[slot_index]);
+            try {
+                *ptr = T{};
+            } catch (...) {
+                free_slots_.push(id);
+                throw;
+            }
+            parent_buffer->occupied[slot_index].store(true, std::memory_order_release);
             occupied_count_.fetch_add(1, std::memory_order_relaxed);
             return id;
         }
@@ -386,7 +397,8 @@ class Storage {
             std::size_t index = (id - reinterpret_cast<std::uint64_t>(&(parent_buffer->buffer[0]))) / sizeof(T);
             std::unique_lock slot_lock(parent_buffer->mutexes[index]);
             if (parent_buffer->occupied[index].load(std::memory_order_acquire) == false) {
-                throw std::runtime_error("Double free detected during deallocation");
+                CFW_LOG_CRITICAL("Double free detected for object ID: {}", id);
+                throw std::runtime_error("Double free detected");
             }
             parent_buffer->occupied[index].store(false, std::memory_order_release);
             occupied_count_.fetch_sub(1, std::memory_order_relaxed);
