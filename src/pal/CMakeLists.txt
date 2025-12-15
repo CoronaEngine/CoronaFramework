@@ -5,9 +5,10 @@ set(CORONA_PAL_SOURCES
     common/factory.cpp
 )
 
-file(GLOB_RECURSE CORONA_PAL_HEADERS CONFIGURE_DEPENDS
-    "${CORONA_PAL_PUBLIC_INCLUDE_DIR}/*.h"
-    "${CORONA_PAL_PUBLIC_INCLUDE_DIR}/*.hpp"
+set(CORONA_PAL_HEADERS
+    ${CORONA_PAL_PUBLIC_INCLUDE_DIR}/cfw_platform.h
+    ${CORONA_PAL_PUBLIC_INCLUDE_DIR}/i_dynamic_library.h
+    ${CORONA_PAL_PUBLIC_INCLUDE_DIR}/i_file_system.h
 )
 
 add_library(corona_pal STATIC

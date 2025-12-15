@@ -19,9 +19,37 @@ set(CORONA_KERNEL_SOURCES
     ecs/archetype.cpp
 )
 
-file(GLOB_RECURSE CORONA_KERNEL_HEADERS CONFIGURE_DEPENDS
-    "${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/*.h"
-    "${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/*.hpp"
+set(CORONA_KERNEL_HEADERS
+    # core
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/core/i_logger.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/core/i_plugin_manager.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/core/i_vfs.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/core/kernel_context.h
+    # ecs
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/ecs/archetype.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/ecs/archetype_layout.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/ecs/archetype_signature.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/ecs/chunk.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/ecs/component.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/ecs/ecs_types.h
+    # event
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/event/event_concepts.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/event/i_event_bus.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/event/i_event_stream.h
+    # memory
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/memory/cache_aligned_allocator.h
+    # system
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/system/i_system.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/system/i_system_context.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/system/i_system_manager.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/system/system_base.h
+    # utils
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/utils/lock_free_queue.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/utils/stack_trace.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/utils/storage.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/utils/task_group.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/utils/task_scheduler.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/utils/work_stealing_queue.h
 )
 
 add_library(corona_kernel STATIC
