@@ -191,7 +191,7 @@ void SystemBase::thread_loop() {
         // 调用子类的更新逻辑
         update();
 
-        frame_number_++;
+        ++frame_number_;
 
         // 收集性能统计
         auto frame_end = std::chrono::high_resolution_clock::now();
