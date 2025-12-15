@@ -151,20 +151,22 @@ std::size_t Chunk::allocate() {
 }
 
 std::optional<std::size_t> Chunk::deallocate(std::size_t index) {
-    assert(index < count_ && "Invalid index for deallocation");
-    assert(layout_ != nullptr && "Layout is null");
+    if (index >= count_ || layout_ == nullptr) {
+        return std::nullopt;  // 无效的索引或布局
+    }
 
     std::optional<std::size_t> moved_from;
 
     if (index < count_ - 1) {
         // 不是最后一个元素，执行 swap-and-pop
-        // 先析构要删除的位置
+        // 1. 先析构要删除位置的组件
         destruct_components_at(index);
 
-        // 将最后一个元素移动到当前位置
-        move_components(index, count_ - 1);
+        // 2. 将最后一个元素移动构造到被删除的位置
+        //    注意：目标位置已被析构，是未初始化内存，必须用 move_construct 而非 move_assign
+        move_construct_components(index, count_ - 1);
 
-        // 析构最后一个位置（移动后的残留）
+        // 3. 析构源位置（移动后的残留对象）
         destruct_components_at(count_ - 1);
 
         moved_from = count_ - 1;
@@ -203,7 +205,7 @@ void Chunk::destruct_components_at(std::size_t index) {
     }
 }
 
-void Chunk::move_components(std::size_t dst, std::size_t src) {
+void Chunk::move_construct_components(std::size_t dst, std::size_t src) {
     if (!layout_ || dst == src) {
         return;
     }
@@ -213,10 +215,29 @@ void Chunk::move_components(std::size_t dst, std::size_t src) {
         void* src_ptr = data_ + comp.array_offset + src * comp.size;
 
         if (comp.type_info && comp.type_info->is_trivially_copyable) {
-            // 使用 memcpy 进行快速复制
+            // Trivially copyable 类型直接 memcpy
+            std::memcpy(dst_ptr, src_ptr, comp.size);
+        } else if (comp.type_info && comp.type_info->move_construct) {
+            // 非 trivial 类型使用移动构造（dst 是未初始化内存）
+            comp.type_info->move_construct(dst_ptr, src_ptr);
+        }
+    }
+}
+
+void Chunk::move_assign_components(std::size_t dst, std::size_t src) {
+    if (!layout_ || dst == src) {
+        return;
+    }
+
+    for (const auto& comp : layout_->components) {
+        void* dst_ptr = data_ + comp.array_offset + dst * comp.size;
+        void* src_ptr = data_ + comp.array_offset + src * comp.size;
+
+        if (comp.type_info && comp.type_info->is_trivially_copyable) {
+            // Trivially copyable 类型直接 memcpy
             std::memcpy(dst_ptr, src_ptr, comp.size);
         } else if (comp.type_info && comp.type_info->move_assign) {
-            // 使用移动赋值
+            // 非 trivial 类型使用移动赋值（dst 是已初始化对象）
             comp.type_info->move_assign(dst_ptr, src_ptr);
         }
     }

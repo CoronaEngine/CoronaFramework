@@ -20,6 +20,13 @@ Archetype::Archetype(Archetype&& other) noexcept
       layout_(std::move(other.layout_)),
       chunks_(std::move(other.chunks_)) {
     other.id_ = kInvalidArchetypeId;
+
+    // 更新所有 Chunk 的 layout 指针，使其指向当前对象的 layout_
+    for (auto& chunk : chunks_) {
+        if (chunk) {
+            chunk->rebind_layout(&layout_);
+        }
+    }
 }
 
 Archetype& Archetype::operator=(Archetype&& other) noexcept {
@@ -30,6 +37,13 @@ Archetype& Archetype::operator=(Archetype&& other) noexcept {
         chunks_ = std::move(other.chunks_);
 
         other.id_ = kInvalidArchetypeId;
+
+        // 更新所有 Chunk 的 layout 指针，使其指向当前对象的 layout_
+        for (auto& chunk : chunks_) {
+            if (chunk) {
+                chunk->rebind_layout(&layout_);
+            }
+        }
     }
     return *this;
 }
@@ -62,10 +76,14 @@ EntityLocation Archetype::allocate_entity() {
 }
 
 std::optional<EntityLocation> Archetype::deallocate_entity(const EntityLocation& location) {
-    assert(location.chunk_index < chunks_.size() && "Invalid chunk index");
+    if (location.chunk_index >= chunks_.size()) {
+        return std::nullopt;  // 无效的 chunk 索引
+    }
 
     auto& chunk = *chunks_[location.chunk_index];
-    assert(location.index_in_chunk < chunk.size() && "Invalid index in chunk");
+    if (location.index_in_chunk >= chunk.size()) {
+        return std::nullopt;  // 无效的实体索引
+    }
 
     auto moved_from = chunk.deallocate(location.index_in_chunk);
 

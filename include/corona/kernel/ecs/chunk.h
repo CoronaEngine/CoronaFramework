@@ -156,6 +156,15 @@ class Chunk {
         return *layout_;
     }
 
+    /**
+     * @brief 重新绑定布局指针
+     *
+     * 当 Archetype 被移动后，需要更新 Chunk 中的布局指针以指向新的布局地址。
+     *
+     * @param new_layout 新的布局指针
+     */
+    void rebind_layout(const ArchetypeLayout* new_layout) { layout_ = new_layout; }
+
    private:
     /// 调用指定索引实体的所有组件构造函数
     void construct_components_at(std::size_t index);
@@ -163,8 +172,11 @@ class Chunk {
     /// 调用指定索引实体的所有组件析构函数
     void destruct_components_at(std::size_t index);
 
-    /// 将 src 索引的组件移动到 dst 索引
-    void move_components(std::size_t dst, std::size_t src);
+    /// 将 src 索引的组件移动构造到 dst 索引（dst 必须是未初始化内存）
+    void move_construct_components(std::size_t dst, std::size_t src);
+
+    /// 将 src 索引的组件移动赋值到 dst 索引（dst 必须是已初始化对象）
+    void move_assign_components(std::size_t dst, std::size_t src);
 
     std::byte* data_ = nullptr;                ///< 原始内存块
     std::size_t count_ = 0;                    ///< 当前实体数量
