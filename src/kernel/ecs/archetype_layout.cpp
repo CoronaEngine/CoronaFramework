@@ -2,8 +2,6 @@
 
 #include <algorithm>
 
-#include "corona/kernel/memory/cache_aligned_allocator.h"
-
 namespace Corona::Kernel::ECS {
 
 namespace {

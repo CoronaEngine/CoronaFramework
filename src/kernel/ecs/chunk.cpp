@@ -2,7 +2,6 @@
 
 #include <cstdlib>
 #include <cstring>
-#include <utility>
 
 #include "corona/pal/cfw_platform.h"
 

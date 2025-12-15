@@ -1,6 +1,5 @@
 #pragma once
 #include <cstring>
-#include <new>
 #include <string_view>
 #include <type_traits>
 #include <typeindex>

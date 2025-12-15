@@ -1,7 +1,6 @@
 #include "corona/kernel/ecs/archetype_signature.h"
 
 #include <algorithm>
-#include <functional>
 
 namespace Corona::Kernel::ECS {
 
