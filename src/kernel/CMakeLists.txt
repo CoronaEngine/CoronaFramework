@@ -13,6 +13,10 @@ set(CORONA_KERNEL_SOURCES
     utils/work_stealing_queue.cpp
     utils/task_scheduler.cpp
     utils/task_group.cpp
+    ecs/archetype_signature.cpp
+    ecs/archetype_layout.cpp
+    ecs/chunk.cpp
+    ecs/archetype.cpp
 )
 
 file(GLOB_RECURSE CORONA_KERNEL_HEADERS CONFIGURE_DEPENDS
