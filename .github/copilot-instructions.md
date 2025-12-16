@@ -1,35 +1,73 @@
 # Corona Framework - AI Coding Agent Instructions
 
-## Quick Orientation
-- Core services live in `corona_kernel` (`src/kernel`); platform adapters are in `corona_pal` (`src/pal`). `KernelContext` (`src/kernel/core/kernel_context.cpp`) wires logger, event bus, event stream, VFS, plugin manager, and system manager and must be initialized via `KernelContext::instance().initialize()` before systems run.
-- Startup/usage patterns are demonstrated in `examples/`, especially `examples/06_game_loop/main.cpp` for multi-system coordination via event streams.
+## Architecture Overview
+Corona is a C++20 game framework with two static libraries:
+- **corona_kernel** (`src/kernel/`) - Core services: events, systems, ECS, VFS, plugins
+- **corona_pal** (`src/pal/`) - Platform abstraction: file system, dynamic library loading
 
-## Core Patterns
-- Events: `IEventBus` (`include/corona/kernel/event/i_event_bus.h`) leverages C++20 concepts; `event_bus.cpp` copies handlers outside locks before invoking them—follow this pattern when extending publish logic.
-- Event streams: `EventStream<T>` and `EventSubscription<T>` (`i_event_stream.h`) provide queue-based async messaging with `BackpressurePolicy`. Acquire shared streams through `KernelContext::instance().event_stream()->get_stream<T>()`.
-- Systems: Derive from `SystemBase` (`include/corona/kernel/system/system_base.h`) to get a managed thread, FPS throttling, and perf counters. `SystemManager` sorts systems by `get_priority()` inside `initialize_all()` and drives `start/pause/resume/stop` for each.
-- Context access: `SystemContext` (in `system_manager.cpp`) hands systems the kernel services; call `context()->logger()/event_bus()/event_stream()` for cross-component communication.
+Entry point: `KernelContext::instance().initialize()` must be called before using any service. See [examples/06_game_loop/main.cpp](examples/06_game_loop/main.cpp) for complete usage.
 
-## Platform Abstractions
-- `corona_pal` currently ships `StdFileSystem` (`src/pal/common/file_system.cpp`) and on Windows `WinDynamicLibrary` (`src/pal/platform/windows/win_dynamic_library.cpp`). Linux/macOS dynamic loading is stubbed—gate new behavior with platform checks.
-- Plugins: `PluginManager` (`src/kernel/core/plugin_manager.cpp`) expects DLL exports `create_plugin`/`destroy_plugin` and wraps plugin lifetimes with custom deleters; ensure new plugins follow that ABI.
+## Build Commands
+```powershell
+cmake --preset ninja-msvc          # or vs2022, ninja-clang
+cmake --build build --config Debug
+ctest -C Debug --test-dir build    # run all tests
+.\build\tests\Debug\kernel_event_bus_test.exe  # run single test
+.\code-format.ps1                  # format before commit (or -Check to verify)
+```
+Dependencies: TBB (Intel Threading Building Blocks), Quill (logging) - auto-fetched via CMake.
 
-## Build & Test Workflow
-- Configure with presets (e.g., `cmake --preset ninja-msvc` or `cmake --preset vs2022`), then `cmake --build build --config Debug`. Both libraries are STATIC; add new sources directly to `add_library` blocks in `src/kernel/CMakeLists.txt` or `src/pal/CMakeLists.txt`.
-- No external deps today (`cmake/dependencies.cmake` is empty); everything is C++20 standard library.
-- Run the full suite with `cd build; ctest -C Debug` or execute a single binary such as `.\build\tests\Debug\kernel_event_stream_test.exe`. Each test in `tests/kernel/` is its own executable linking `corona_kernel` + `corona_pal`.
-- Custom macros live in `tests/test_framework.h`; they throw `std::runtime_error` on failure. Multi-thread stress tests (`*_mt_test.cpp`) are the reference when validating concurrency changes.
-- Format code via `.\code-format.ps1` before committing.
+## Key Patterns
 
-## Logging & I/O
-- `Logger` (`src/kernel/core/logger.cpp`) fans out to sinks; console sink is synchronous, file sink is asynchronous with a worker thread—avoid long blocking sections when adding sinks.
-- `VirtualFileSystem` (`src/kernel/core/vfs.cpp`) normalizes mount paths and delegates to the PAL file system. Always resolve virtual paths (ensures trailing slash handling) before doing raw I/O.
+### Events (two mechanisms)
+1. **EventBus** - Synchronous pub/sub. Handlers called immediately on `publish()`:
+   ```cpp
+   auto id = event_bus->subscribe<MyEvent>([](const MyEvent& e) { ... });
+   event_bus->publish(MyEvent{...});
+   ```
+2. **EventStream** - Async queued messaging with backpressure (`Block`/`DropOldest`/`DropNewest`):
+   ```cpp
+   auto stream = event_stream->get_stream<MyEvent>();
+   auto sub = stream->subscribe({.max_queue_size = 256, .policy = BackpressurePolicy::Block});
+   if (auto evt = sub.try_pop()) { ... }  // non-blocking
+   ```
 
-## Concurrency Gotchas
-- Copy shared collections under a mutex and release the lock before heavy work (`event_bus.cpp`, `EventStream<T>::publish_impl`).
-- Systems run on dedicated threads; ensure destructors call `stop()` and guard shared state with atomics or mutexes.
-- `SystemBase` tracks frame timing; use `reset_stats()` when tests rely on clean performance metrics.
+### Systems
+Derive from `SystemBase` for managed threading, FPS throttling, pause/resume:
+```cpp
+class PhysicsSystem : public SystemBase {
+    std::string_view get_name() const override { return "Physics"; }
+    int get_priority() const override { return 90; }  // higher = init first
+    bool initialize(ISystemContext* ctx) override { ... }
+    void update() override { world_->step(delta_time()); }
+};
+```
+Register via `system_manager->register_system(std::make_unique<PhysicsSystem>())`.
 
-## Docs & References
-- Chinese design notes live in `doc/项目架构概览.md` and friends; scan them before large architectural changes.
-- Quick references: `examples/01_event_bus` (basic pub/sub) through `examples/06_game_loop` (complete loop) show canonical usage of events, streams, and systems.
+### Plugins (Windows only)
+DLLs must export `extern "C"` symbols `create_plugin()` / `destroy_plugin()`. Framework wraps with custom deleter. See [doc/plugin_guide.md](doc/plugin_guide.md).
+
+## Concurrency Rules
+- **Copy-then-release**: Copy handler lists under mutex, invoke outside lock (see `event_bus.cpp:publish_impl`)
+- Systems run on dedicated threads - guard shared state with atomics/mutexes
+- Multi-thread tests (`*_mt_test.cpp`) are the validation reference for concurrency changes
+
+## Adding Code
+- New kernel sources: add to `CORONA_KERNEL_SOURCES` in [src/kernel/CMakeLists.txt](src/kernel/CMakeLists.txt)
+- New tests: use `corona_add_test(name path.cpp)` in [tests/CMakeLists.txt](tests/CMakeLists.txt)
+- Test macros in [tests/test_framework.h](tests/test_framework.h): `TEST(Suite, Name)`, `ASSERT_TRUE/EQ/NE` throw on failure
+
+## ECS (in development)
+Archetype-based storage: `Archetype` manages `Chunk`s of entities with identical component signatures. See [include/corona/kernel/ecs/](include/corona/kernel/ecs/).
+
+## File Structure Reference
+```
+include/corona/kernel/  - Public headers (interfaces, concepts)
+src/kernel/             - Implementations
+  core/                 - KernelContext, Logger, VFS, PluginManager
+  event/                - EventBus, EventStream
+  system/               - SystemBase, SystemManager
+  ecs/                  - Archetype, Chunk, Component
+examples/01-07/         - Progressive usage examples
+tests/kernel/           - Unit tests (each is standalone executable)
+```

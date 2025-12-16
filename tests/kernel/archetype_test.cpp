@@ -1,10 +1,7 @@
 #include "corona/kernel/ecs/archetype.h"
 
-#include <atomic>
 #include <chrono>
-#include <iostream>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include "../test_framework.h"
