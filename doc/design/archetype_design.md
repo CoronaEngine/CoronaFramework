@@ -493,6 +493,8 @@ for (auto& chunk : archetype->chunks()) {
 
 ## 5. 线程安全考量
 
+详细设计见 [thread_safety_design.md](thread_safety_design.md)
+
 ### 5.1 当前设计
 
 - **Archetype 实例**：非线程安全，需要外部同步
@@ -586,17 +588,23 @@ archetype.h
 
 ### Phase 2：Entity 管理（后续）
 
+详细设计见 [entity_manager_design.md](entity_manager_design.md)
+
 - [ ] `EntityId` 生成与回收
 - [ ] `EntityLocation` 映射表
 - [ ] 实体跨 Archetype 迁移
 
 ### Phase 3：查询系统（后续）
 
+详细设计见 [query_system_design.md](query_system_design.md)
+
 - [ ] `ArchetypeGraph`（Archetype 关系图）
 - [ ] `Query<T...>` 查询接口
 - [ ] 查询缓存
 
 ### Phase 4：World 集成（后续）
+
+详细设计见 [world_design.md](world_design.md)
 
 - [ ] `World` 类（ECS 上下文）
 - [ ] System 集成
