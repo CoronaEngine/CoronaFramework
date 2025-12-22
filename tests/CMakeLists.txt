@@ -84,6 +84,9 @@ corona_add_test(kernel_task_group_test kernel/task_group_test.cpp)
 # Archetype 测试
 corona_add_test(kernel_archetype_test kernel/archetype_test.cpp)
 
+# EntityManager 测试
+corona_add_test(kernel_entity_manager_test kernel/entity_manager_test.cpp)
+
 # ========================================
 # 启用测试
 # ========================================

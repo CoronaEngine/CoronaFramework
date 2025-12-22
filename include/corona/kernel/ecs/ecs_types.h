@@ -11,11 +11,7 @@ using ComponentTypeId = std::size_t;
 /// Archetype ID 类型
 using ArchetypeId = std::size_t;
 
-/// 实体 ID 类型（预留，后续 Phase 2 实现）
-using EntityId = std::uint64_t;
-
-/// 无效的实体 ID
-inline constexpr EntityId kInvalidEntityId = std::numeric_limits<EntityId>::max();
+// EntityId 类定义在 entity_id.h 中
 
 /// 无效的 Archetype ID
 inline constexpr ArchetypeId kInvalidArchetypeId = std::numeric_limits<ArchetypeId>::max();

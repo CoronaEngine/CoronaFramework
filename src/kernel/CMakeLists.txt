@@ -17,6 +17,7 @@ set(CORONA_KERNEL_SOURCES
     ecs/archetype_layout.cpp
     ecs/chunk.cpp
     ecs/archetype.cpp
+    ecs/entity_manager.cpp
 )
 
 set(CORONA_KERNEL_HEADERS
@@ -32,6 +33,9 @@ set(CORONA_KERNEL_HEADERS
     ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/ecs/chunk.h
     ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/ecs/component.h
     ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/ecs/ecs_types.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/ecs/entity_id.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/ecs/entity_record.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/ecs/entity_manager.h
     # event
     ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/event/event_concepts.h
     ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/event/i_event_bus.h
