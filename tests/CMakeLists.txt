@@ -87,6 +87,9 @@ corona_add_test(kernel_archetype_test kernel/archetype_test.cpp)
 # EntityManager 测试
 corona_add_test(kernel_entity_manager_test kernel/entity_manager_test.cpp)
 
+# World 测试
+corona_add_test(kernel_world_test kernel/world_test.cpp)
+
 # ========================================
 # 启用测试
 # ========================================

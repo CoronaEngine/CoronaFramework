@@ -129,6 +129,19 @@ class EntityManager {
      */
     bool update_location(EntityId id, ArchetypeId archetype_id, const EntityLocation& location);
 
+    /**
+     * @brief 查找位于指定位置的实体
+     *
+     * 遍历所有活跃实体，找到位于指定 Archetype 和位置的实体。
+     * 这是一个 O(N) 操作，主要用于 swap-and-pop 后更新被移动实体的记录。
+     *
+     * @param archetype_id Archetype ID
+     * @param location 实体位置
+     * @return 找到的实体 ID，未找到返回 kInvalidEntity
+     */
+    [[nodiscard]] EntityId find_entity_at(ArchetypeId archetype_id,
+                                          const EntityLocation& location) const;
+
     // ========================================
     // 统计信息
     // ========================================

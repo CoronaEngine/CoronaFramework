@@ -100,6 +100,18 @@ bool EntityManager::update_location(EntityId id, ArchetypeId archetype_id,
     return true;
 }
 
+EntityId EntityManager::find_entity_at(ArchetypeId archetype_id,
+                                       const EntityLocation& location) const {
+    for (std::size_t i = 0; i < records_.size(); ++i) {
+        const auto& record = records_[i];
+        if (record.archetype_id == archetype_id && record.location == location &&
+            record.generation != 0) {
+            return EntityId(static_cast<EntityId::IndexType>(i), record.generation);
+        }
+    }
+    return kInvalidEntity;
+}
+
 void EntityManager::reserve(std::size_t capacity) {
     if (capacity > records_.size()) {
         records_.reserve(capacity);
