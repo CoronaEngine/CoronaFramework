@@ -10,6 +10,9 @@ set(CORONA_KERNEL_SOURCES
     system/system_manager.cpp
     system/system_base.cpp
     memory/cache_aligned_allocator.cpp
+    memory/fixed_pool.cpp
+    memory/linear_arena.cpp
+    memory/frame_arena.cpp
     utils/work_stealing_queue.cpp
     utils/task_scheduler.cpp
     utils/task_group.cpp
@@ -44,6 +47,15 @@ set(CORONA_KERNEL_HEADERS
     ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/event/i_event_stream.h
     # memory
     ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/memory/cache_aligned_allocator.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/memory/pool_config.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/memory/chunk.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/memory/fixed_pool.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/memory/object_pool.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/memory/linear_arena.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/memory/frame_arena.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/memory/lock_free_stack.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/memory/thread_local_pool.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/memory/memory_pool.h
     # system
     ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/system/i_system.h
     ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/system/i_system_context.h
