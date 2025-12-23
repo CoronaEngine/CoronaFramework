@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "corona/kernel/ecs/chunk_allocator.h"
 #include "corona/pal/cfw_platform.h"
 
 namespace Corona::Kernel::ECS {
@@ -40,16 +41,28 @@ void aligned_free_impl(void* ptr) {
 }  // namespace
 
 Chunk::Chunk(const ArchetypeLayout& layout, std::size_t capacity)
-    : count_(0), capacity_(capacity), layout_(&layout) {
+    : count_(0), capacity_(capacity), layout_(&layout), allocator_(nullptr), owns_memory_(true) {
     if (capacity_ > 0 && layout_->chunk_data_size > 0) {
         // 分配对齐内存（使用 64 字节对齐以优化缓存）
         constexpr std::size_t kChunkAlignment = 64;
         data_ = static_cast<std::byte*>(aligned_alloc_impl(layout_->chunk_data_size, kChunkAlignment));
+        init_memory();
+    }
+}
 
-        if (data_) {
-            // 零初始化
-            std::memset(data_, 0, layout_->chunk_data_size);
-        }
+Chunk::Chunk(const ArchetypeLayout& layout, std::size_t capacity, ChunkAllocator* allocator)
+    : count_(0), capacity_(capacity), layout_(&layout), allocator_(allocator), owns_memory_(false) {
+    if (capacity_ > 0 && layout_->chunk_data_size > 0 && allocator_) {
+        // 从分配器获取内存
+        data_ = static_cast<std::byte*>(allocator_->allocate());
+        init_memory();
+    }
+}
+
+void Chunk::init_memory() {
+    if (data_) {
+        // 零初始化
+        std::memset(data_, 0, layout_->chunk_data_size);
     }
 }
 
@@ -60,7 +73,13 @@ Chunk::~Chunk() {
     }
 
     // 释放内存
-    aligned_free_impl(data_);
+    if (data_) {
+        if (owns_memory_) {
+            aligned_free_impl(data_);
+        } else if (allocator_) {
+            allocator_->deallocate(data_);
+        }
+    }
     data_ = nullptr;
 }
 
@@ -68,11 +87,15 @@ Chunk::Chunk(Chunk&& other) noexcept
     : data_(other.data_),
       count_(other.count_),
       capacity_(other.capacity_),
-      layout_(other.layout_) {
+      layout_(other.layout_),
+      allocator_(other.allocator_),
+      owns_memory_(other.owns_memory_) {
     other.data_ = nullptr;
     other.count_ = 0;
     other.capacity_ = 0;
     other.layout_ = nullptr;
+    other.allocator_ = nullptr;
+    other.owns_memory_ = true;
 }
 
 Chunk& Chunk::operator=(Chunk&& other) noexcept {
@@ -81,18 +104,30 @@ Chunk& Chunk::operator=(Chunk&& other) noexcept {
         for (std::size_t i = 0; i < count_; ++i) {
             destruct_components_at(i);
         }
-        aligned_free_impl(data_);
+
+        // 释放当前内存
+        if (data_) {
+            if (owns_memory_) {
+                aligned_free_impl(data_);
+            } else if (allocator_) {
+                allocator_->deallocate(data_);
+            }
+        }
 
         // 移动数据
         data_ = other.data_;
         count_ = other.count_;
         capacity_ = other.capacity_;
         layout_ = other.layout_;
+        allocator_ = other.allocator_;
+        owns_memory_ = other.owns_memory_;
 
         other.data_ = nullptr;
         other.count_ = 0;
         other.capacity_ = 0;
         other.layout_ = nullptr;
+        other.allocator_ = nullptr;
+        other.owns_memory_ = true;
     }
     return *this;
 }

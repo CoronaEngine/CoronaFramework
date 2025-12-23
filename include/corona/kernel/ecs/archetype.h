@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "chunk.h"
+#include "chunk_allocator.h"
 
 namespace Corona::Kernel::ECS {
 
@@ -16,6 +17,7 @@ namespace Corona::Kernel::ECS {
  * - 组件数据紧凑存储，缓存友好
  * - O(1) 组件访问
  * - 支持高效的批量遍历
+ * - 使用内存池管理 Chunk 内存
  *
  * 示例：
  * @code
@@ -43,8 +45,10 @@ class Archetype {
      * @brief 构造函数
      * @param id Archetype 唯一标识
      * @param signature 组件类型签名
+     * @param allocator Chunk 内存分配器（可选，nullptr 使用全局分配器）
      */
-    explicit Archetype(ArchetypeId id, ArchetypeSignature signature);
+    explicit Archetype(ArchetypeId id, ArchetypeSignature signature,
+                       ChunkAllocator* allocator = nullptr);
 
     /// 析构函数
     ~Archetype();
@@ -281,6 +285,7 @@ class Archetype {
     ArchetypeSignature signature_;                ///< 组件类型签名
     ArchetypeLayout layout_;                      ///< 内存布局
     std::vector<std::unique_ptr<Chunk>> chunks_;  ///< Chunk 列表
+    ChunkAllocator* allocator_ = nullptr;         ///< Chunk 内存分配器
 };
 
 }  // namespace Corona::Kernel::ECS

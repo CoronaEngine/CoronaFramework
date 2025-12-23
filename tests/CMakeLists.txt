@@ -53,6 +53,9 @@ corona_add_test(kernel_benchmark_test kernel/benchmark_test.cpp)
 # CacheAlignedAllocator 测试
 corona_add_test(kernel_cache_aligned_allocator_test kernel/cache_aligned_allocator_test.cpp)
 
+# MemoryPool 测试
+corona_add_test(kernel_memory_pool_test kernel/memory_pool_test.cpp)
+
 # Platform 测试
 corona_add_test(kernel_platform_test kernel/platform_test.cpp)
 

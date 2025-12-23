@@ -19,6 +19,7 @@ set(CORONA_KERNEL_SOURCES
     ecs/archetype_signature.cpp
     ecs/archetype_layout.cpp
     ecs/chunk.cpp
+    ecs/chunk_allocator.cpp
     ecs/archetype.cpp
     ecs/entity_manager.cpp
     ecs/world.cpp
@@ -35,6 +36,7 @@ set(CORONA_KERNEL_HEADERS
     ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/ecs/archetype_layout.h
     ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/ecs/archetype_signature.h
     ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/ecs/chunk.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/ecs/chunk_allocator.h
     ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/ecs/component.h
     ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/ecs/ecs_types.h
     ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/ecs/entity_id.h

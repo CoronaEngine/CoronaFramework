@@ -8,6 +8,9 @@
 
 namespace Corona::Kernel::ECS {
 
+// 前向声明
+class ChunkAllocator;
+
 /**
  * @brief Chunk 内存块
  *
@@ -23,15 +26,24 @@ namespace Corona::Kernel::ECS {
  * - 固定大小，便于内存池管理
  * - SoA 布局，缓存友好
  * - swap-and-pop 删除策略，保持数据紧凑
+ * - 支持外部内存分配器（ChunkAllocator）
  */
 class Chunk {
    public:
     /**
-     * @brief 构造函数
+     * @brief 构造函数（自分配内存）
      * @param layout 组件布局信息
      * @param capacity 实体容量（由布局计算得出）
      */
     explicit Chunk(const ArchetypeLayout& layout, std::size_t capacity);
+
+    /**
+     * @brief 构造函数（使用外部分配器）
+     * @param layout 组件布局信息
+     * @param capacity 实体容量
+     * @param allocator 内存分配器
+     */
+    Chunk(const ArchetypeLayout& layout, std::size_t capacity, ChunkAllocator* allocator);
 
     /// 析构函数，释放内存并调用所有组件的析构函数
     ~Chunk();
@@ -166,6 +178,9 @@ class Chunk {
     void rebind_layout(const ArchetypeLayout* new_layout) { layout_ = new_layout; }
 
    private:
+    /// 初始化内存（构造函数通用逻辑）
+    void init_memory();
+
     /// 调用指定索引实体的所有组件构造函数
     void construct_components_at(std::size_t index);
 
@@ -182,6 +197,8 @@ class Chunk {
     std::size_t count_ = 0;                    ///< 当前实体数量
     std::size_t capacity_ = 0;                 ///< 最大实体容量
     const ArchetypeLayout* layout_ = nullptr;  ///< 组件布局（由 Archetype 持有）
+    ChunkAllocator* allocator_ = nullptr;      ///< 内存分配器（nullptr 表示自分配）
+    bool owns_memory_ = true;                  ///< 是否拥有内存（自分配时为 true）
 };
 
 }  // namespace Corona::Kernel::ECS

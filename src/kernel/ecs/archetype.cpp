@@ -4,10 +4,15 @@
 
 namespace Corona::Kernel::ECS {
 
-Archetype::Archetype(ArchetypeId id, ArchetypeSignature signature)
-    : id_(id), signature_(std::move(signature)) {
+Archetype::Archetype(ArchetypeId id, ArchetypeSignature signature, ChunkAllocator* allocator)
+    : id_(id), signature_(std::move(signature)), allocator_(allocator) {
     // 计算内存布局
     layout_ = ArchetypeLayout::calculate(signature_);
+
+    // 如果没有提供分配器，使用全局分配器
+    if (!allocator_) {
+        allocator_ = &get_global_chunk_allocator();
+    }
 }
 
 Archetype::~Archetype() {
@@ -18,8 +23,10 @@ Archetype::Archetype(Archetype&& other) noexcept
     : id_(other.id_),
       signature_(std::move(other.signature_)),
       layout_(std::move(other.layout_)),
-      chunks_(std::move(other.chunks_)) {
+      chunks_(std::move(other.chunks_)),
+      allocator_(other.allocator_) {
     other.id_ = kInvalidArchetypeId;
+    other.allocator_ = nullptr;
 
     // 更新所有 Chunk 的 layout 指针，使其指向当前对象的 layout_
     for (auto& chunk : chunks_) {
@@ -35,8 +42,10 @@ Archetype& Archetype::operator=(Archetype&& other) noexcept {
         signature_ = std::move(other.signature_);
         layout_ = std::move(other.layout_);
         chunks_ = std::move(other.chunks_);
+        allocator_ = other.allocator_;
 
         other.id_ = kInvalidArchetypeId;
+        other.allocator_ = nullptr;
 
         // 更新所有 Chunk 的 layout 指针，使其指向当前对象的 layout_
         for (auto& chunk : chunks_) {
@@ -126,7 +135,8 @@ void Archetype::ensure_capacity() {
 }
 
 Chunk& Archetype::create_chunk() {
-    auto chunk = std::make_unique<Chunk>(layout_, layout_.entities_per_chunk);
+    // 使用内存分配器创建 Chunk
+    auto chunk = std::make_unique<Chunk>(layout_, layout_.entities_per_chunk, allocator_);
     chunks_.push_back(std::move(chunk));
     return *chunks_.back();
 }
