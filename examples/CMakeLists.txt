@@ -39,3 +39,13 @@ corona_add_example(06_game_loop 06_game_loop/main.cpp)
 # 07 - Storage Example
 # ========================================
 corona_add_example(07_storage 07_storage/main.cpp)
+
+# ========================================
+# 08 - ECS Example
+# ========================================
+corona_add_example(08_ecs 08_ecs/main.cpp)
+
+# ========================================
+# 09 - Memory Pool Example
+# ========================================
+corona_add_example(09_memory_pool 09_memory_pool/main.cpp)
