@@ -26,6 +26,15 @@ set(CORONA_KERNEL_SOURCES
 )
 
 set(CORONA_KERNEL_HEADERS
+    # coro
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/coro/coro.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/coro/coro_concepts.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/coro/task.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/coro/generator.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/coro/awaitables.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/coro/executor.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/coro/tbb_executor.h
+    ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/coro/scheduler.h
     # core
     ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/core/i_logger.h
     ${CORONA_KERNEL_PUBLIC_INCLUDE_DIR}/core/i_plugin_manager.h

@@ -94,6 +94,19 @@ corona_add_test(kernel_entity_manager_test kernel/entity_manager_test.cpp)
 corona_add_test(kernel_world_test kernel/world_test.cpp)
 
 # ========================================
+# Coroutine Tests
+# ========================================
+
+# Task 测试
+corona_add_test(kernel_coro_task_test kernel/coro_task_test.cpp)
+
+# Generator 测试
+corona_add_test(kernel_coro_generator_test kernel/coro_generator_test.cpp)
+
+# Executor 测试
+corona_add_test(kernel_coro_executor_test kernel/coro_executor_test.cpp)
+
+# ========================================
 # 启用测试
 # ========================================
 
@@ -216,6 +229,24 @@ add_test(
 add_test(
     NAME TaskGroup
     COMMAND kernel_task_group_test
+)
+
+# 注册 Coroutine Task 测试
+add_test(
+    NAME CoroTask
+    COMMAND kernel_coro_task_test
+)
+
+# 注册 Coroutine Generator 测试
+add_test(
+    NAME CoroGenerator
+    COMMAND kernel_coro_generator_test
+)
+
+# 注册 Coroutine Executor 测试
+add_test(
+    NAME CoroExecutor
+    COMMAND kernel_coro_executor_test
 )
 
 # ========================================

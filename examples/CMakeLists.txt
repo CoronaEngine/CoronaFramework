@@ -49,3 +49,8 @@ corona_add_example(08_ecs 08_ecs/main.cpp)
 # 09 - Memory Pool Example
 # ========================================
 corona_add_example(09_memory_pool 09_memory_pool/main.cpp)
+
+# ========================================
+# 10 - Coroutine Example
+# ========================================
+corona_add_example(10_coroutine 10_coroutine/main.cpp)
