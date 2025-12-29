@@ -5,6 +5,7 @@
 #include <memory>
 
 #include "executor.h"
+#include "task.h"
 #include "tbb_executor.h"
 
 namespace Corona::Kernel::Coro {
