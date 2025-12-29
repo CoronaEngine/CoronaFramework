@@ -12,7 +12,6 @@
 #include <iostream>
 #include <string>
 #include <thread>
-#include <vector>
 
 using namespace Corona::Kernel::Coro;
 
@@ -21,34 +20,43 @@ using namespace Corona::Kernel::Coro;
 // ========================================
 
 Task<int> async_add(int a, int b) {
-    // 模拟异步操作（使用阻塞模式，与 Task::get() 兼容）
-    co_await suspend_for_blocking(std::chrono::milliseconds{100});
+    // 关键点：suspend_for 会将协程提交给 Scheduler (默认是 TBB 线程池)
+    // 当时间到达后，线程池中的某个空闲线程会恢复这个协程
+    // 这就是为什么你会看到线程 ID 发生了变化
+    co_await suspend_for(std::chrono::milliseconds{100});
+    std::cout << "[Async] Adding " << a << " + " << b << " on thread " << std::this_thread::get_id() << std::endl;
     co_return a + b;
 }
 
 Task<int> compute_sum() {
-    std::cout << "[Task] Starting computation..." << std::endl;
+    std::cout << "[Task] Starting computation on thread " << std::this_thread::get_id() << std::endl;
 
     int x = co_await async_add(1, 2);
-    std::cout << "[Task] x = " << x << std::endl;
+    std::cout << "[Task] x = " << x << " (thread " << std::this_thread::get_id() << ")" << std::endl;
 
     int y = co_await async_add(3, 4);
-    std::cout << "[Task] y = " << y << std::endl;
+    std::cout << "[Task] y = " << y << " (thread " << std::this_thread::get_id() << ")" << std::endl;
 
     int z = co_await async_add(x, y);
-    std::cout << "[Task] z = " << z << std::endl;
+    std::cout << "[Task] z = " << z << " (thread " << std::this_thread::get_id() << ")" << std::endl;
 
     co_return z;
 }
 
 // ========================================
-// 示例 2: 生成器
+// 示例 2: 生成器 (始终在调用者线程运行)
 // ========================================
 
 Generator<int> fibonacci(int count) {
+    std::cout << "[Gen] Started on thread " << std::this_thread::get_id() << std::endl;
     int a = 0, b = 1;
     for (int i = 0; i < count; ++i) {
-        co_yield a;
+        co_yield a; // 挂起，将控制权还给调用者 (主线程)
+        
+        // 当调用者再次请求下一个值时，从这里恢复
+        // 因为是调用者直接恢复的，所以还在原来的线程
+        std::cout << "[Gen] Resumed on thread " << std::this_thread::get_id() << std::endl;
+        
         int next = a + b;
         a = b;
         b = next;
@@ -175,40 +183,25 @@ Task<void> periodic_task(int count, std::chrono::milliseconds interval) {
 }
 
 // ========================================
-// 示例 9: TbbExecutor 线程池（直接使用，不通过协程）
+// 示例 9: TbbExecutor 线程池与协程结合
 // ========================================
 
-void executor_demo_sync() {
-    std::cout << "[Executor] Main thread: " << std::this_thread::get_id() << std::endl;
+Task<void> executor_demo_async() {
+    std::cout << "[Executor] Started on thread: " << std::this_thread::get_id() << std::endl;
 
-    TbbExecutor executor(4);
+    // 切换到线程池执行
+    co_await schedule_on_pool();
+    std::cout << "[Executor] Running on pool thread: " << std::this_thread::get_id() << std::endl;
 
-    std::atomic<bool> task1_done{false};
-    std::atomic<bool> task2_done{false};
+    // 模拟耗时操作
+    co_await suspend_for(std::chrono::milliseconds{50});
 
-    // 提交任务到线程池
-    executor.execute([&task1_done]() {
-        std::cout << "[Executor] Task 1 on thread: " << std::this_thread::get_id() << std::endl;
-        std::this_thread::sleep_for(std::chrono::milliseconds{50});
-        std::cout << "[Executor] Task 1 completed" << std::endl;
-        task1_done = true;
-    });
+    std::cout << "[Executor] Task completed on thread: " << std::this_thread::get_id() << std::endl;
+}
 
-    // 延迟执行任务
-    executor.execute_after([&task2_done]() {
-        std::cout << "[Executor] Task 2 (delayed) on thread: " << std::this_thread::get_id()
-                  << std::endl;
-        task2_done = true;
-    },
-                           std::chrono::milliseconds{100});
-
-    // 等待任务完成
-    while (!task1_done || !task2_done) {
-        std::this_thread::sleep_for(std::chrono::milliseconds{10});
-    }
-
-    std::cout << "[Executor] All tasks completed" << std::endl;
-    executor.shutdown();
+void executor_demo() {
+    // 使用 Runner 运行协程
+    Runner::run(executor_demo_async());
 }
 
 // ========================================
@@ -271,15 +264,12 @@ Task<bool> with_timeout(std::chrono::milliseconds timeout) {
 // 示例 13: schedule_on_pool 切换到线程池
 // ========================================
 
-// 注意：这个示例展示如何正确地在协程中使用线程池
-// Task::get() 使用忙等待，与异步执行器切换存在竞争
-// 生产环境中应使用适当的同步原语（如 condition_variable）
-
 Task<int> async_work_on_pool() {
     std::cout << "[Pool] Before schedule, thread: " << std::this_thread::get_id() << std::endl;
 
-    // 切换到线程池（注意：直接用 get() 等待可能有竞争问题）
-    // 这里仅作演示，实际使用需要更健壮的同步机制
+    // 切换到线程池执行
+    // 此时协程挂起，当前线程（如果是主线程）在 Task::get() 中等待
+    // 协程将在线程池中的某个线程上恢复执行
     co_await schedule_on_pool();
 
     std::cout << "[Pool] Now on pool thread: " << std::this_thread::get_id() << std::endl;
@@ -363,23 +353,28 @@ Task<std::string> wait_with_timeout_demo() {
 // ========================================
 
 Task<void> scheduler_mode_demo() {
-    // 注意：suspend_for 默认使用调度器模式（异步），需要配合异步执行器使用
-    // 当通过 Task::get() 同步等待时，应使用 suspend_for_blocking
-
-    std::cout << "[Blocking] Using blocking mode (compatible with Task::get())..." << std::endl;
+    std::cout << "[Demo] Comparing suspend modes..." << std::endl;
+    
+    // 1. 阻塞模式 (suspend_for_blocking)
+    // 直接阻塞当前线程，不涉及调度器。
+    // 适用于：非协程环境、测试、或必须阻塞当前线程的场景。
     auto start = std::chrono::steady_clock::now();
-
-    // 阻塞模式：使用 sleep，与 Task::get() 兼容
-    co_await suspend_for_blocking(std::chrono::milliseconds{100});
-
+    co_await suspend_for_blocking(std::chrono::milliseconds{50});
     auto end = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-    std::cout << "[Blocking] Elapsed: " << elapsed.count() << "ms" << std::endl;
+    std::cout << "[Blocking] Slept for " 
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() 
+              << "ms on thread " << std::this_thread::get_id() << std::endl;
 
-    // 调度器模式：需要配合 schedule_on_pool 或其他异步执行器使用
-    // 这里仅演示阻塞模式，调度器模式的正确用法见示例 13
-
-    co_return;
+    // 2. 调度器模式 (suspend_for)
+    // 挂起协程，将恢复任务提交给调度器（线程池）。
+    // 当前线程可以去执行其他任务（如果是 Worker 线程）或等待（如果是 Main 线程）。
+    // 适用于：真正的异步 I/O 或定时任务。
+    start = std::chrono::steady_clock::now();
+    co_await suspend_for(std::chrono::milliseconds{50});
+    end = std::chrono::steady_clock::now();
+    std::cout << "[Scheduler] Slept for " 
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() 
+              << "ms, resumed on thread " << std::this_thread::get_id() << std::endl;
 }
 
 // ========================================
@@ -395,11 +390,10 @@ int main() {
     // 示例 1: 异步任务
     std::cout << "--- Example 1: Async Task ---" << std::endl;
     {
-        auto task = compute_sum();
+        std::cout << "[Main] Main thread ID: " << std::this_thread::get_id() << std::endl;
         std::cout << "[Main] Waiting for result..." << std::endl;
-        int result = task.get();
+        int result = Runner::run(compute_sum());
         std::cout << "[Main] Final result: " << result << std::endl;
-        // auto result = compute_sum();
     }
     std::cout << std::endl;
 
@@ -423,8 +417,7 @@ int main() {
     // 示例 3: 异常处理
     std::cout << "--- Example 3: Exception Handling ---" << std::endl;
     {
-        auto task = handle_error();
-        std::string result = task.get();
+        std::string result = Runner::run(handle_error());
         std::cout << "[Main] " << result << std::endl;
     }
     std::cout << std::endl;
@@ -432,8 +425,7 @@ int main() {
     // 示例 4: 条件等待
     std::cout << "--- Example 4: Wait Until ---" << std::endl;
     {
-        auto task = wait_for_condition();
-        task.get();
+        Runner::run(wait_for_condition());
     }
     std::cout << std::endl;
 
@@ -489,7 +481,7 @@ int main() {
     // 示例 10: TbbExecutor 线程池
     std::cout << "--- Example 10: TbbExecutor Thread Pool ---" << std::endl;
     {
-        executor_demo_sync();
+        executor_demo();
     }
     std::cout << std::endl;
 
@@ -504,7 +496,7 @@ int main() {
     // 示例 12: 生成器组合
     std::cout << "--- Example 12: Generator Composition ---" << std::endl;
     {
-        // fibonacci 前 5 个数的 2 倍，过滤偶数
+        // fibonacci 数的 2 倍，过滤偶数
         std::cout << "First 5 fibonacci doubled: ";
         for (int n : take(map_double(fibonacci(10)), 5)) {
             std::cout << n << " ";
