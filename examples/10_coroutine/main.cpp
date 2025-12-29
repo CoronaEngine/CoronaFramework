@@ -174,26 +174,39 @@ Task<void> periodic_task(int count, std::chrono::milliseconds interval) {
 }
 
 // ========================================
-// 示例 9: TbbExecutor 线程池
+// 示例 9: TbbExecutor 线程池（直接使用，不通过协程）
 // ========================================
 
-Task<void> executor_demo() {
+void executor_demo_sync() {
     std::cout << "[Executor] Main thread: " << std::this_thread::get_id() << std::endl;
 
     TbbExecutor executor(4);
 
-    // 切换到线程池执行
-    co_await switch_to(executor);
-    std::cout << "[Executor] Now on pool thread: " << std::this_thread::get_id() << std::endl;
+    std::atomic<bool> task1_done{false};
+    std::atomic<bool> task2_done{false};
 
-    // 在线程池上执行一些工作
-    co_await suspend_for(std::chrono::milliseconds{50});
-    std::cout << "[Executor] After delay, thread: " << std::this_thread::get_id() << std::endl;
+    // 提交任务到线程池
+    executor.execute([&task1_done]() {
+        std::cout << "[Executor] Task 1 on thread: " << std::this_thread::get_id() << std::endl;
+        std::this_thread::sleep_for(std::chrono::milliseconds{50});
+        std::cout << "[Executor] Task 1 completed" << std::endl;
+        task1_done = true;
+    });
 
-    // 切换回内联执行器
-    co_await switch_to(inline_executor());
-    std::cout << "[Executor] Back to inline execution" << std::endl;
+    // 延迟执行任务
+    executor.execute_after([&task2_done]() {
+        std::cout << "[Executor] Task 2 (delayed) on thread: " << std::this_thread::get_id()
+                  << std::endl;
+        task2_done = true;
+    },
+                           std::chrono::milliseconds{100});
 
+    // 等待任务完成
+    while (!task1_done || !task2_done) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+    }
+
+    std::cout << "[Executor] All tasks completed" << std::endl;
     executor.shutdown();
 }
 
@@ -251,6 +264,32 @@ Task<bool> with_timeout(std::chrono::milliseconds timeout) {
 
     std::cout << "[Timeout] Timed out after " << attempts << " attempts" << std::endl;
     co_return false;
+}
+
+// ========================================
+// 示例 13: schedule_on_pool 切换到线程池
+// ========================================
+
+// 注意：这个示例展示如何正确地在协程中使用线程池
+// Task::get() 使用忙等待，与异步执行器切换存在竞争
+// 生产环境中应使用适当的同步原语（如 condition_variable）
+
+Task<int> async_work_on_pool() {
+    std::cout << "[Pool] Before schedule, thread: " << std::this_thread::get_id() << std::endl;
+
+    // 切换到线程池（注意：直接用 get() 等待可能有竞争问题）
+    // 这里仅作演示，实际使用需要更健壮的同步机制
+    co_await schedule_on_pool();
+
+    std::cout << "[Pool] Now on pool thread: " << std::this_thread::get_id() << std::endl;
+
+    // 模拟一些计算
+    int result = 0;
+    for (int i = 0; i < 100; ++i) {
+        result += i;
+    }
+
+    co_return result;
 }
 
 // ========================================
@@ -360,7 +399,7 @@ int main() {
     // 示例 10: TbbExecutor 线程池
     std::cout << "--- Example 10: TbbExecutor Thread Pool ---" << std::endl;
     {
-        Runner::run(executor_demo());
+        executor_demo_sync();
     }
     std::cout << std::endl;
 

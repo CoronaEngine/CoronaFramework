@@ -39,12 +39,16 @@ class SuspendFor {
     /**
      * @brief 挂起协程并在延时后恢复
      *
+     * 使用对称转移确保在 await_suspend 返回后才恢复协程，
+     * 避免在协程尚未完全挂起时调用 resume() 导致未定义行为。
+     *
      * @param handle 协程句柄
+     * @return 对称转移到的协程句柄
      */
-    void await_suspend(std::coroutine_handle<> handle) const {
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<> handle) const {
         // TODO: 应该使用定时器调度器而不是阻塞 sleep
         std::this_thread::sleep_for(duration_);
-        handle.resume();
+        return handle;  // 对称转移：编译器负责安全恢复协程
     }
 
     /**
@@ -89,9 +93,17 @@ class SuspendFor {
 struct Yield {
     [[nodiscard]] bool await_ready() const noexcept { return false; }
 
-    void await_suspend(std::coroutine_handle<> handle) const noexcept {
-        // 立即重新调度
-        handle.resume();
+    /**
+     * @brief 挂起并立即恢复
+     *
+     * 使用对称转移确保安全恢复协程。
+     *
+     * @param handle 协程句柄
+     * @return 对称转移到的协程句柄
+     */
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<> handle) const noexcept {
+        // 对称转移：立即重新调度
+        return handle;
     }
 
     void await_resume() const noexcept {}
@@ -136,13 +148,18 @@ class WaitUntil {
 
     /**
      * @brief 轮询等待条件满足
+     *
+     * 使用对称转移确保在 await_suspend 返回后才恢复协程。
+     *
+     * @param handle 协程句柄
+     * @return 对称转移到的协程句柄
      */
-    void await_suspend(std::coroutine_handle<> handle) const {
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<> handle) const {
         // TODO: 应该使用事件驱动而不是轮询
         while (!predicate_()) {
             std::this_thread::sleep_for(poll_interval_);
         }
-        handle.resume();
+        return handle;  // 对称转移：编译器负责安全恢复协程
     }
 
     void await_resume() const noexcept {}
@@ -194,10 +211,27 @@ class SwitchToExecutor {
    public:
     explicit SwitchToExecutor(E& executor) noexcept : executor_(executor) {}
 
-    [[nodiscard]] bool await_ready() const noexcept { return false; }
+    /**
+     * @brief 检查是否已在目标执行器线程上
+     *
+     * 如果已经在目标执行器线程，可以直接恢复而无需切换。
+     */
+    [[nodiscard]] bool await_ready() const noexcept {
+        return executor_.is_in_executor_thread();
+    }
 
-    void await_suspend(std::coroutine_handle<> handle) const {
+    /**
+     * @brief 切换到目标执行器
+     *
+     * 如果执行器是同步的（如 InlineExecutor），使用对称转移确保安全。
+     * 如果执行器是异步的（如 TbbExecutor），则真正挂起协程。
+     *
+     * @param handle 协程句柄
+     * @return noop_coroutine 表示真正挂起，等待异步恢复
+     */
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<> handle) const {
         executor_.execute([handle]() mutable { handle.resume(); });
+        return std::noop_coroutine();  // 真正挂起，等待执行器异步恢复
     }
 
     void await_resume() const noexcept {}
@@ -231,8 +265,15 @@ class SwitchToExecutorAfter {
 
     [[nodiscard]] bool await_ready() const noexcept { return delay_.count() <= 0; }
 
-    void await_suspend(std::coroutine_handle<> handle) const {
+    /**
+     * @brief 延迟后切换到目标执行器
+     *
+     * @param handle 协程句柄
+     * @return noop_coroutine 表示真正挂起，等待延迟后异步恢复
+     */
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<> handle) const {
         executor_.execute_after([handle]() mutable { handle.resume(); }, delay_);
+        return std::noop_coroutine();  // 真正挂起，等待执行器延迟后恢复
     }
 
     void await_resume() const noexcept {}

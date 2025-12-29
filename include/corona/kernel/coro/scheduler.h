@@ -121,8 +121,15 @@ class Scheduler {
 struct ScheduleOnPool {
     [[nodiscard]] bool await_ready() const noexcept { return false; }
 
-    void await_suspend(std::coroutine_handle<> handle) const {
+    /**
+     * @brief 调度到线程池
+     *
+     * @param handle 协程句柄
+     * @return noop_coroutine 表示真正挂起，等待线程池异步恢复
+     */
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<> handle) const {
         Scheduler::instance().schedule(handle);
+        return std::noop_coroutine();  // 真正挂起，等待线程池异步恢复
     }
 
     void await_resume() const noexcept {}
@@ -144,8 +151,15 @@ class ScheduleOnPoolAfter {
 
     [[nodiscard]] bool await_ready() const noexcept { return delay_.count() <= 0; }
 
-    void await_suspend(std::coroutine_handle<> handle) const {
+    /**
+     * @brief 延迟后调度到线程池
+     *
+     * @param handle 协程句柄
+     * @return noop_coroutine 表示真正挂起，等待延迟后异步恢复
+     */
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<> handle) const {
         Scheduler::instance().schedule_after(handle, delay_);
+        return std::noop_coroutine();  // 真正挂起，等待延迟后异步恢复
     }
 
     void await_resume() const noexcept {}

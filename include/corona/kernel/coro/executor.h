@@ -2,7 +2,6 @@
 
 #include <chrono>
 #include <functional>
-#include <memory>
 #include <thread>
 
 namespace Corona::Kernel::Coro {
