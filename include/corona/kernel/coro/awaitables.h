@@ -2,11 +2,19 @@
 
 #include <chrono>
 #include <concepts>
+#include <condition_variable>
 #include <coroutine>
+#include <cstdint>
+#include <mutex>
 #include <thread>
 #include <type_traits>
 
 #include "coro_concepts.h"
+
+// 前向声明 Scheduler，避免循环依赖
+namespace Corona::Kernel::Coro {
+class Scheduler;
+}  // namespace Corona::Kernel::Coro
 
 namespace Corona::Kernel::Coro {
 
@@ -18,7 +26,9 @@ namespace Corona::Kernel::Coro {
  * @brief 延时等待器
  *
  * 在指定时间后恢复协程执行。
- * 注意：当前实现使用 sleep，实际应用中应使用定时器调度器。
+ * 支持两种模式：
+ * - 调度器模式（默认）：使用定时器调度器，不阻塞线程
+ * - 阻塞模式：使用 sleep，会阻塞当前线程
  */
 class SuspendFor {
    public:
@@ -26,8 +36,11 @@ class SuspendFor {
      * @brief 构造延时等待器
      *
      * @param duration 延时时长
+     * @param use_scheduler 是否使用调度器（默认 true）
      */
-    explicit SuspendFor(std::chrono::milliseconds duration) noexcept : duration_(duration) {}
+    explicit SuspendFor(std::chrono::milliseconds duration,
+                        bool use_scheduler = true) noexcept
+        : duration_(duration), use_scheduler_(use_scheduler) {}
 
     /**
      * @brief 检查是否可以立即返回
@@ -39,17 +52,13 @@ class SuspendFor {
     /**
      * @brief 挂起协程并在延时后恢复
      *
-     * 使用对称转移确保在 await_suspend 返回后才恢复协程，
-     * 避免在协程尚未完全挂起时调用 resume() 导致未定义行为。
+     * 如果使用调度器模式，将协程提交到调度器的定时队列，不阻塞线程。
+     * 如果使用阻塞模式，使用 sleep 阻塞当前线程。
      *
      * @param handle 协程句柄
-     * @return 对称转移到的协程句柄
+     * @return noop_coroutine（调度器模式）或 handle（阻塞模式）
      */
-    std::coroutine_handle<> await_suspend(std::coroutine_handle<> handle) const {
-        // TODO: 应该使用定时器调度器而不是阻塞 sleep
-        std::this_thread::sleep_for(duration_);
-        return handle;  // 对称转移：编译器负责安全恢复协程
-    }
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<> handle) const;
 
     /**
      * @brief 恢复后的操作（无操作）
@@ -58,27 +67,38 @@ class SuspendFor {
 
    private:
     std::chrono::milliseconds duration_;
+    bool use_scheduler_;
 };
 
 /**
- * @brief 便捷函数：延时指定时间
+ * @brief 便捷函数：延时指定时间（使用调度器，不阻塞线程）
  *
  * @param duration 延时时长
  * @return SuspendFor 等待器
  */
 [[nodiscard]] inline SuspendFor suspend_for(std::chrono::milliseconds duration) {
-    return SuspendFor{duration};
+    return SuspendFor{duration, true};
 }
 
 /**
- * @brief 便捷函数：延时指定秒数
+ * @brief 便捷函数：延时指定时间（阻塞模式）
+ *
+ * @param duration 延时时长
+ * @return SuspendFor 等待器
+ */
+[[nodiscard]] inline SuspendFor suspend_for_blocking(std::chrono::milliseconds duration) {
+    return SuspendFor{duration, false};
+}
+
+/**
+ * @brief 便捷函数：延时指定秒数（阻塞模式，与 Task::get() 兼容）
  *
  * @param seconds 秒数
  * @return SuspendFor 等待器
  */
 [[nodiscard]] inline SuspendFor suspend_for_seconds(double seconds) {
     return SuspendFor{
-        std::chrono::milliseconds{static_cast<long long>(seconds * 1000)}};
+        std::chrono::milliseconds{static_cast<std::int64_t>(seconds * 1000)}, false};
 }
 
 // ========================================
@@ -121,11 +141,177 @@ struct Yield {
 // ========================================
 
 /**
- * @brief 条件等待器
+ * @brief 事件驱动的条件变量等待器
+ *
+ * 使用 std::condition_variable 实现真正的事件驱动等待，
+ * 避免轮询带来的 CPU 浪费。外部代码在条件可能改变时调用 notify()。
+ *
+ * 使用示例：
+ * @code
+ * auto cond = std::make_shared<ConditionVariable>();
+ *
+ * // 在协程中等待
+ * co_await cond->wait([&]() { return data_ready; });
+ *
+ * // 在其他地方通知
+ * data_ready = true;
+ * cond->notify_one();
+ * @endcode
+ */
+class ConditionVariable : public std::enable_shared_from_this<ConditionVariable> {
+   public:
+    ConditionVariable() = default;
+
+    // 禁止拷贝和移动
+    ConditionVariable(const ConditionVariable&) = delete;
+    ConditionVariable& operator=(const ConditionVariable&) = delete;
+    ConditionVariable(ConditionVariable&&) = delete;
+    ConditionVariable& operator=(ConditionVariable&&) = delete;
+
+    /**
+     * @brief 通知一个等待者
+     */
+    void notify_one() noexcept {
+        std::lock_guard lock(mutex_);
+        cv_.notify_one();
+    }
+
+    /**
+     * @brief 通知所有等待者
+     */
+    void notify_all() noexcept {
+        std::lock_guard lock(mutex_);
+        cv_.notify_all();
+    }
+
+    /**
+     * @brief 等待条件满足的 Awaitable
+     *
+     * @tparam Predicate 谓词类型
+     */
+    template <typename Predicate>
+        requires BoolPredicate<Predicate>
+    class WaitAwaitable {
+       public:
+        WaitAwaitable(std::shared_ptr<ConditionVariable> cv, Predicate pred)
+            : cv_(std::move(cv)), predicate_(std::move(pred)) {}
+
+        [[nodiscard]] bool await_ready() const { return predicate_(); }
+
+        /**
+         * @brief 事件驱动等待
+         *
+         * 使用条件变量等待，而非轮询。当 notify_one/notify_all 被调用时唤醒。
+         *
+         * @param handle 协程句柄
+         * @return 对称转移到的协程句柄
+         */
+        std::coroutine_handle<> await_suspend(std::coroutine_handle<> handle) {
+            std::unique_lock lock(cv_->mutex_);
+            cv_->cv_.wait(lock, [this]() { return predicate_(); });
+            return handle;  // 对称转移：编译器负责安全恢复协程
+        }
+
+        void await_resume() const noexcept {}
+
+       private:
+        std::shared_ptr<ConditionVariable> cv_;
+        Predicate predicate_;
+    };
+
+    /**
+     * @brief 带超时的等待 Awaitable
+     *
+     * @tparam Predicate 谓词类型
+     */
+    template <typename Predicate>
+        requires BoolPredicate<Predicate>
+    class WaitForAwaitable {
+       public:
+        WaitForAwaitable(std::shared_ptr<ConditionVariable> cv, Predicate pred,
+                         std::chrono::milliseconds timeout)
+            : cv_(std::move(cv)), predicate_(std::move(pred)), timeout_(timeout) {}
+
+        [[nodiscard]] bool await_ready() const { return predicate_(); }
+
+        /**
+         * @brief 带超时的事件驱动等待
+         *
+         * @param handle 协程句柄
+         * @return 对称转移到的协程句柄
+         */
+        std::coroutine_handle<> await_suspend(std::coroutine_handle<> handle) {
+            std::unique_lock lock(cv_->mutex_);
+            timed_out_ = !cv_->cv_.wait_for(lock, timeout_, [this]() { return predicate_(); });
+            return handle;
+        }
+
+        /**
+         * @brief 返回是否超时
+         *
+         * @return 如果超时返回 true，条件满足返回 false
+         */
+        [[nodiscard]] bool await_resume() const noexcept { return timed_out_; }
+
+       private:
+        std::shared_ptr<ConditionVariable> cv_;
+        Predicate predicate_;
+        std::chrono::milliseconds timeout_;
+        mutable bool timed_out_ = false;
+    };
+
+    /**
+     * @brief 创建等待 Awaitable
+     *
+     * @tparam Predicate 谓词类型
+     * @param pred 条件谓词
+     * @return WaitAwaitable
+     */
+    template <typename Predicate>
+        requires BoolPredicate<Predicate>
+    [[nodiscard]] WaitAwaitable<std::decay_t<Predicate>> wait(Predicate&& pred) {
+        return WaitAwaitable<std::decay_t<Predicate>>{shared_from_this(),
+                                                      std::forward<Predicate>(pred)};
+    }
+
+    /**
+     * @brief 创建带超时的等待 Awaitable
+     *
+     * @tparam Predicate 谓词类型
+     * @param pred 条件谓词
+     * @param timeout 超时时间
+     * @return WaitForAwaitable，await_resume() 返回是否超时
+     */
+    template <typename Predicate>
+        requires BoolPredicate<Predicate>
+    [[nodiscard]] WaitForAwaitable<std::decay_t<Predicate>> wait_for(
+        Predicate&& pred, std::chrono::milliseconds timeout) {
+        return WaitForAwaitable<std::decay_t<Predicate>>{
+            shared_from_this(), std::forward<Predicate>(pred), timeout};
+    }
+
+   private:
+    std::mutex mutex_;
+    std::condition_variable cv_;
+};
+
+/**
+ * @brief 便捷函数：创建条件变量
+ *
+ * @return ConditionVariable 的智能指针
+ */
+[[nodiscard]] inline std::shared_ptr<ConditionVariable> make_condition_variable() {
+    return std::make_shared<ConditionVariable>();
+}
+
+/**
+ * @brief 轮询式条件等待器（已废弃，建议使用 ConditionVariable）
  *
  * 等待直到条件满足。使用轮询方式检查条件。
+ * 对于需要事件驱动的场景，请使用 ConditionVariable 类。
  *
  * @tparam Predicate 谓词类型（必须返回 bool）
+ * @deprecated 推荐使用 ConditionVariable::wait() 实现事件驱动等待
  */
 template <typename Predicate>
     requires BoolPredicate<Predicate>
@@ -149,13 +335,13 @@ class WaitUntil {
     /**
      * @brief 轮询等待条件满足
      *
-     * 使用对称转移确保在 await_suspend 返回后才恢复协程。
+     * 注意：此实现使用轮询，会消耗 CPU 资源。
+     * 对于需要高效等待的场景，请使用 ConditionVariable。
      *
      * @param handle 协程句柄
      * @return 对称转移到的协程句柄
      */
     std::coroutine_handle<> await_suspend(std::coroutine_handle<> handle) const {
-        // TODO: 应该使用事件驱动而不是轮询
         while (!predicate_()) {
             std::this_thread::sleep_for(poll_interval_);
         }
@@ -352,5 +538,28 @@ template <typename T>
  * @brief 便捷函数：创建立即返回的 void Awaitable
  */
 [[nodiscard]] inline ReadyValue<void> ready() { return ReadyValue<void>{}; }
+
+}  // namespace Corona::Kernel::Coro
+
+// ========================================
+// SuspendFor 的延迟实现（需要 Scheduler）
+// ========================================
+
+#include "scheduler.h"
+
+namespace Corona::Kernel::Coro {
+
+inline std::coroutine_handle<> SuspendFor::await_suspend(
+    std::coroutine_handle<> handle) const {
+    if (use_scheduler_) {
+        // 使用调度器：提交到定时队列，不阻塞线程
+        Scheduler::instance().schedule_after(handle, duration_);
+        return std::noop_coroutine();  // 真正挂起，等待调度器异步恢复
+    } else {
+        // 阻塞模式：使用 sleep
+        std::this_thread::sleep_for(duration_);
+        return handle;  // 对称转移：编译器负责安全恢复协程
+    }
+}
 
 }  // namespace Corona::Kernel::Coro

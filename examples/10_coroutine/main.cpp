@@ -7,6 +7,7 @@
 
 #include <corona/kernel/coro/coro.h>
 
+#include <atomic>
 #include <chrono>
 #include <iostream>
 #include <string>
@@ -20,8 +21,8 @@ using namespace Corona::Kernel::Coro;
 // ========================================
 
 Task<int> async_add(int a, int b) {
-    // 模拟异步操作
-    co_await suspend_for(std::chrono::milliseconds{1000});
+    // 模拟异步操作（使用阻塞模式，与 Task::get() 兼容）
+    co_await suspend_for_blocking(std::chrono::milliseconds{100});
     co_return a + b;
 }
 
@@ -73,7 +74,7 @@ Generator<int> filter_even(Generator<int> gen) {
 // ========================================
 
 Task<int> may_fail(bool should_fail) {
-    co_await suspend_for(std::chrono::milliseconds{5});
+    co_await suspend_for_blocking(std::chrono::milliseconds{5});
     if (should_fail) {
         throw std::runtime_error("Something went wrong!");
     }
@@ -125,7 +126,7 @@ Task<void> cooperative_task(const std::string& name, int steps) {
 
 Task<int> level_3() {
     std::cout << "  [Level 3] Computing..." << std::endl;
-    co_await suspend_for(std::chrono::milliseconds{10});
+    co_await suspend_for_blocking(std::chrono::milliseconds{10});
     co_return 10;
 }
 
@@ -168,7 +169,7 @@ Task<void> periodic_task(int count, std::chrono::milliseconds interval) {
     std::cout << "[Periodic] Starting periodic task..." << std::endl;
     for (int i = 0; i < count; ++i) {
         std::cout << "[Periodic] Tick " << i + 1 << "/" << count << std::endl;
-        co_await suspend_for(interval);
+        co_await suspend_for_blocking(interval);
     }
     std::cout << "[Periodic] Periodic task completed!" << std::endl;
 }
@@ -259,7 +260,7 @@ Task<bool> with_timeout(std::chrono::milliseconds timeout) {
             std::cout << "[Timeout] Condition met after " << attempts << " attempts" << std::endl;
             co_return true;
         }
-        co_await suspend_for(std::chrono::milliseconds{100});
+        co_await suspend_for_blocking(std::chrono::milliseconds{100});
     }
 
     std::cout << "[Timeout] Timed out after " << attempts << " attempts" << std::endl;
@@ -290,6 +291,95 @@ Task<int> async_work_on_pool() {
     }
 
     co_return result;
+}
+
+// ========================================
+// 示例 14: ConditionVariable 事件驱动等待
+// ========================================
+
+// 全局变量用于演示
+std::atomic<bool> g_data_ready{false};
+std::shared_ptr<ConditionVariable> g_cv;
+
+Task<void> producer_task() {
+    std::cout << "[Producer] Preparing data..." << std::endl;
+    co_await suspend_for_blocking(std::chrono::milliseconds{200});  // 模拟数据准备
+    std::cout << "[Producer] Data ready! Notifying consumer..." << std::endl;
+    g_data_ready = true;
+    g_cv->notify_one();
+    co_return;
+}
+
+Task<void> consumer_task() {
+    std::cout << "[Consumer] Waiting for data (event-driven, no polling)..." << std::endl;
+    co_await g_cv->wait([&]() { return g_data_ready.load(); });
+    std::cout << "[Consumer] Data received! Processing..." << std::endl;
+    co_return;
+}
+
+void condition_variable_demo() {
+    g_cv = make_condition_variable();
+    g_data_ready = false;
+
+    // 在单独的线程中运行消费者（因为它会阻塞等待）
+    std::thread consumer_thread([]() {
+        auto task = consumer_task();
+        task.get();
+    });
+
+    // 给消费者一点时间开始等待
+    std::this_thread::sleep_for(std::chrono::milliseconds{50});
+
+    // 运行生产者
+    Runner::run(producer_task());
+
+    consumer_thread.join();
+    std::cout << "[Demo] Producer-Consumer demo completed!" << std::endl;
+}
+
+// ========================================
+// 示例 15: ConditionVariable 带超时等待
+// ========================================
+
+Task<std::string> wait_with_timeout_demo() {
+    auto cv = make_condition_variable();
+    bool condition = false;
+
+    // 尝试等待一个不会满足的条件，设置 100ms 超时
+    std::cout << "[Timeout] Waiting with 100ms timeout..." << std::endl;
+    bool timed_out = co_await cv->wait_for(
+        [&]() { return condition; },
+        std::chrono::milliseconds{100});
+
+    if (timed_out) {
+        co_return "Timed out (expected)";
+    } else {
+        co_return "Condition met";
+    }
+}
+
+// ========================================
+// 示例 16: suspend_for 调度器模式 vs 阻塞模式
+// ========================================
+
+Task<void> scheduler_mode_demo() {
+    // 注意：suspend_for 默认使用调度器模式（异步），需要配合异步执行器使用
+    // 当通过 Task::get() 同步等待时，应使用 suspend_for_blocking
+
+    std::cout << "[Blocking] Using blocking mode (compatible with Task::get())..." << std::endl;
+    auto start = std::chrono::steady_clock::now();
+
+    // 阻塞模式：使用 sleep，与 Task::get() 兼容
+    co_await suspend_for_blocking(std::chrono::milliseconds{100});
+
+    auto end = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    std::cout << "[Blocking] Elapsed: " << elapsed.count() << "ms" << std::endl;
+
+    // 调度器模式：需要配合 schedule_on_pool 或其他异步执行器使用
+    // 这里仅演示阻塞模式，调度器模式的正确用法见示例 13
+
+    co_return;
 }
 
 // ========================================
@@ -435,6 +525,28 @@ int main() {
     {
         bool success = Runner::run(with_timeout(std::chrono::milliseconds{500}));
         std::cout << "[Timeout] Result: " << (success ? "Success" : "Failed") << std::endl;
+    }
+    std::cout << std::endl;
+
+    // 示例 14: ConditionVariable 事件驱动等待
+    std::cout << "--- Example 14: ConditionVariable (Event-Driven Wait) ---" << std::endl;
+    {
+        condition_variable_demo();
+    }
+    std::cout << std::endl;
+
+    // 示例 15: ConditionVariable 带超时等待
+    std::cout << "--- Example 15: ConditionVariable with Timeout ---" << std::endl;
+    {
+        std::string result = Runner::run(wait_with_timeout_demo());
+        std::cout << "[Result] " << result << std::endl;
+    }
+    std::cout << std::endl;
+
+    // 示例 16: suspend_for 调度器模式 vs 阻塞模式
+    std::cout << "--- Example 16: Scheduler vs Blocking Mode ---" << std::endl;
+    {
+        Runner::run(scheduler_mode_demo());
     }
     std::cout << std::endl;
 

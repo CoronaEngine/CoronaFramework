@@ -3,6 +3,8 @@
  * @brief Task<T> 单元测试
  */
 
+#include <corona/kernel/coro/coro.h>
+
 #include <atomic>
 #include <chrono>
 #include <iostream>
@@ -13,7 +15,6 @@
 #include <vector>
 
 #include "../test_framework.h"
-#include <corona/kernel/coro/coro.h>
 
 using namespace Corona::Kernel::Coro;
 using namespace CoronaTest;
@@ -147,7 +148,7 @@ TEST(CoroTask, DoneState) {
 
     ASSERT_FALSE(task.done());  // 惰性执行，尚未开始
     task.resume();
-    ASSERT_TRUE(task.done());   // 执行完成
+    ASSERT_TRUE(task.done());  // 执行完成
 }
 
 TEST(CoroTask, ValidityCheck) {
@@ -200,7 +201,7 @@ TEST(CoroTask, MoveAssignment) {
 TEST(CoroTask, SuspendFor) {
     auto task = []() -> Task<int> {
         auto start = std::chrono::steady_clock::now();
-        co_await suspend_for(std::chrono::milliseconds{50});
+        co_await suspend_for_blocking(std::chrono::milliseconds{50});
         auto end = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
         co_return static_cast<int>(elapsed.count());
@@ -264,7 +265,7 @@ struct ComplexType {
     int id;
     std::string name;
     std::vector<double> data;
-    
+
     bool operator==(const ComplexType& other) const {
         return id == other.id && name == other.name && data == other.data;
     }
@@ -278,7 +279,7 @@ TEST(CoroTask, ComplexTypeReturn) {
         result.data = {1.0, 2.0, 3.0};
         co_return result;
     }();
-    
+
     auto result = task.get();
     ASSERT_EQ(result.id, 42);
     ASSERT_EQ(result.name, "Test");
@@ -290,7 +291,7 @@ TEST(CoroTask, SharedPtrReturn) {
     auto task = []() -> Task<std::shared_ptr<int>> {
         co_return std::make_shared<int>(999);
     }();
-    
+
     auto result = task.get();
     ASSERT_TRUE(result != nullptr);
     ASSERT_EQ(*result, 999);
@@ -342,7 +343,7 @@ TEST(CoroTask, StdExceptionPropagation) {
         throw std::invalid_argument("Invalid argument test");
         co_return 0;
     }();
-    
+
     bool caught = false;
     try {
         task.get();
@@ -359,7 +360,7 @@ TEST(CoroTask, OutOfRangeException) {
         throw std::out_of_range("Index out of range");
         co_return 0;
     }();
-    
+
     bool caught = false;
     try {
         task.get();
@@ -374,15 +375,15 @@ TEST(CoroTask, ExceptionInNestedCall) {
         throw std::runtime_error("Deep nested error");
         co_return 0;
     };
-    
+
     auto middle = [&]() -> Task<int> {
         co_return co_await inner();
     };
-    
+
     auto outer = [&]() -> Task<int> {
         co_return co_await middle();
     }();
-    
+
     bool caught = false;
     try {
         outer.get();
@@ -399,19 +400,19 @@ TEST(CoroTask, ExceptionInNestedCall) {
 // ========================================
 
 Task<int> chain_step(int value, int multiplier) {
-    co_return value * multiplier;
+    co_return value* multiplier;
 }
 
 TEST(CoroTask, CoroutineChain) {
     auto task = []() -> Task<int> {
         int result = 1;
-        result = co_await chain_step(result, 2);   // 2
-        result = co_await chain_step(result, 3);   // 6
-        result = co_await chain_step(result, 4);   // 24
-        result = co_await chain_step(result, 5);   // 120
+        result = co_await chain_step(result, 2);  // 2
+        result = co_await chain_step(result, 3);  // 6
+        result = co_await chain_step(result, 4);  // 24
+        result = co_await chain_step(result, 5);  // 120
         co_return result;
     }();
-    
+
     int result = task.get();
     ASSERT_EQ(result, 120);  // 5! = 120
 }
@@ -428,7 +429,7 @@ TEST(CoroTask, StringCoroutineChain) {
         result = co_await string_chain(result);
         co_return result;
     }();
-    
+
     std::string result = task.get();
     ASSERT_EQ(result, "Hello!!!");
 }
@@ -448,7 +449,7 @@ Task<int> conditional_task(bool flag) {
 TEST(CoroTask, ConditionalBranch) {
     auto task1 = conditional_task(true);
     auto task2 = conditional_task(false);
-    
+
     ASSERT_EQ(task1.get(), 100);
     ASSERT_EQ(task2.get(), 200);
 }
@@ -468,7 +469,7 @@ TEST(CoroTask, EarlyReturn) {
     auto task1 = early_return_task(-5);
     auto task2 = early_return_task(30);
     auto task3 = early_return_task(100);
-    
+
     ASSERT_EQ(task1.get(), 0);
     ASSERT_EQ(task2.get(), 60);
     ASSERT_EQ(task3.get(), 100);
@@ -489,7 +490,7 @@ Task<int> accumulate_async(int count) {
 TEST(CoroTask, LoopWithAwait) {
     auto task = accumulate_async(5);
     int result = task.get();
-    // sum = (0+1) + ((0+1)+2) + ... 
+    // sum = (0+1) + ((0+1)+2) + ...
     // 这是累加逻辑：1, 1+2=3, 3+3=6, 6+4=10, 10+5=15 -> 总和 1+3+6+10+15=35
     // 实际逻辑: sum从0开始，每次 sum = sum + (sum + i) = 2*sum + i
     // i=1: sum = 0 + (0+1) = 1
@@ -508,16 +509,16 @@ TEST(CoroTask, MultipleMove) {
     auto task1 = []() -> Task<int> {
         co_return 42;
     }();
-    
+
     Task<int> task2 = std::move(task1);
     Task<int> task3 = std::move(task2);
     Task<int> task4 = std::move(task3);
-    
+
     ASSERT_FALSE(static_cast<bool>(task1));
     ASSERT_FALSE(static_cast<bool>(task2));
     ASSERT_FALSE(static_cast<bool>(task3));
     ASSERT_TRUE(static_cast<bool>(task4));
-    
+
     ASSERT_EQ(task4.get(), 42);
 }
 
@@ -530,7 +531,7 @@ TEST(CoroTask, VoidTaskException) {
         throw std::runtime_error("Void task error");
         co_return;
     }();
-    
+
     bool caught = false;
     try {
         task.get();
@@ -548,19 +549,19 @@ TEST(CoroTask, VoidTaskException) {
 
 TEST(CoroTask, NestedVoidTasks) {
     int counter = 0;
-    
+
     auto increment = [&]() -> Task<void> {
         counter++;
         co_return;
     };
-    
+
     auto outer = [&]() -> Task<void> {
         co_await increment();
         co_await increment();
         co_await increment();
         co_return;
     }();
-    
+
     outer.get();
     ASSERT_EQ(counter, 3);
 }
@@ -570,7 +571,7 @@ TEST(CoroTask, NestedVoidTasks) {
 // ========================================
 
 Task<int> reusable_task(int n) {
-    co_return n * n;
+    co_return n* n;
 }
 
 TEST(CoroTask, MultipleTaskInstances) {
@@ -578,11 +579,169 @@ TEST(CoroTask, MultipleTaskInstances) {
     for (int i = 0; i < 10; ++i) {
         tasks.push_back(reusable_task(i));
     }
-    
+
     for (int i = 0; i < 10; ++i) {
         int result = tasks[i].get();
         ASSERT_EQ(result, i * i);
     }
+}
+
+// ========================================
+// SuspendFor 阻塞模式测试
+// ========================================
+
+TEST(CoroTask, SuspendForBlockingModeBasic) {
+    // 使用阻塞模式（与 Task::get() 兼容）
+    auto task = []() -> Task<int> {
+        auto start = std::chrono::steady_clock::now();
+        co_await suspend_for_blocking(std::chrono::milliseconds{50});
+        auto end = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        co_return static_cast<int>(elapsed.count());
+    }();
+
+    int elapsed_ms = task.get();
+    ASSERT_GE(elapsed_ms, 40);   // 允许一些误差
+    ASSERT_LE(elapsed_ms, 200);  // 不应该太久
+}
+
+TEST(CoroTask, SuspendForBlockingMode) {
+    // 使用阻塞模式
+    auto task = []() -> Task<int> {
+        auto start = std::chrono::steady_clock::now();
+        co_await suspend_for_blocking(std::chrono::milliseconds{30});
+        auto end = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        co_return static_cast<int>(elapsed.count());
+    }();
+
+    int elapsed_ms = task.get();
+    ASSERT_GE(elapsed_ms, 20);  // 允许一些误差
+}
+
+TEST(CoroTask, SuspendForZeroDuration) {
+    // 0 时长应该立即返回
+    auto task = []() -> Task<bool> {
+        co_await suspend_for_blocking(std::chrono::milliseconds{0});
+        co_return true;
+    }();
+
+    ASSERT_TRUE(task.get());
+}
+
+// ========================================
+// ConditionVariable 事件驱动测试
+// ========================================
+
+TEST(CoroTask, ConditionVariableBasic) {
+    auto cv = make_condition_variable();
+    std::atomic<bool> flag{false};
+    std::atomic<bool> task_completed{false};
+
+    // 启动一个线程等待条件
+    std::thread waiter([&]() {
+        auto task = [&]() -> Task<void> {
+            co_await cv->wait([&]() { return flag.load(); });
+            task_completed = true;
+            co_return;
+        }();
+        task.get();
+    });
+
+    // 给等待线程一点时间开始等待
+    std::this_thread::sleep_for(std::chrono::milliseconds{20});
+    ASSERT_FALSE(task_completed.load());  // 应该还在等待
+
+    // 设置条件并通知
+    flag = true;
+    cv->notify_one();
+
+    waiter.join();
+    ASSERT_TRUE(task_completed.load());  // 应该已完成
+}
+
+TEST(CoroTask, ConditionVariableNotifyAll) {
+    auto cv = make_condition_variable();
+    std::atomic<int> counter{0};
+    std::atomic<int> completed{0};
+
+    // 启动多个等待线程
+    std::vector<std::thread> waiters;
+    for (int i = 0; i < 3; ++i) {
+        waiters.emplace_back([&]() {
+            auto task = [&]() -> Task<void> {
+                co_await cv->wait([&]() { return counter.load() >= 5; });
+                completed.fetch_add(1);
+                co_return;
+            }();
+            task.get();
+        });
+    }
+
+    // 增加计数并通知
+    std::this_thread::sleep_for(std::chrono::milliseconds{20});
+    counter = 5;
+    cv->notify_all();
+
+    for (auto& t : waiters) {
+        t.join();
+    }
+    ASSERT_EQ(completed.load(), 3);  // 所有线程应该都完成
+}
+
+TEST(CoroTask, ConditionVariableWithTimeout) {
+    auto cv = make_condition_variable();
+    bool never_true = false;
+
+    auto task = [&]() -> Task<bool> {
+        // 等待一个永远不会满足的条件，但有超时
+        bool timed_out = co_await cv->wait_for(
+            [&]() { return never_true; },
+            std::chrono::milliseconds{50});
+        co_return timed_out;  // 应该超时返回 true
+    }();
+
+    bool result = task.get();
+    ASSERT_TRUE(result);  // 应该超时
+}
+
+TEST(CoroTask, ConditionVariableNoTimeout) {
+    auto cv = make_condition_variable();
+    std::atomic<bool> flag{false};
+
+    // 启动一个线程很快设置条件
+    std::thread setter([&]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds{20});
+        flag = true;
+        cv->notify_one();
+    });
+
+    auto task = [&]() -> Task<bool> {
+        bool timed_out = co_await cv->wait_for(
+            [&]() { return flag.load(); },
+            std::chrono::milliseconds{500});
+        co_return timed_out;
+    }();
+
+    bool result = task.get();
+    setter.join();
+    ASSERT_FALSE(result);  // 应该没有超时
+}
+
+TEST(CoroTask, ConditionVariableAlreadyTrue) {
+    auto cv = make_condition_variable();
+
+    // 条件已经满足，应该立即返回
+    auto task = [&]() -> Task<int> {
+        auto start = std::chrono::steady_clock::now();
+        co_await cv->wait([]() { return true; });
+        auto end = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        co_return static_cast<int>(elapsed.count());
+    }();
+
+    int elapsed = task.get();
+    ASSERT_LT(elapsed, 10);  // 应该几乎立即返回
 }
 
 // ========================================
