@@ -243,6 +243,14 @@ class World {
 };
 
 // ========================================
+// 辅助函数前向声明
+// ========================================
+
+/// 拷贝两个 Archetype 之间的共有组件（前向声明，定义在文件末尾）
+inline void copy_common_components(Archetype& src, const EntityLocation& src_loc, Archetype& dst,
+                                   const EntityLocation& dst_loc);
+
+// ========================================
 // 模板方法实现
 // ========================================
 
