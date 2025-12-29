@@ -1,10 +1,12 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <concepts>
 #include <condition_variable>
 #include <coroutine>
 #include <cstdint>
+#include <list>
 #include <mutex>
 #include <thread>
 #include <type_traits>
@@ -178,10 +180,10 @@ struct Yield {
 // ========================================
 
 /**
- * @brief 事件驱动的条件变量等待器
+ * @brief 事件驱动的条件变量等待器 (异步实现)
  *
- * 使用 std::condition_variable 实现真正的事件驱动等待，
- * 避免轮询带来的 CPU 浪费。外部代码在条件可能改变时调用 notify()。
+ * 使用协程挂起而非线程阻塞，避免死锁和资源浪费。
+ * 外部代码在条件可能改变时调用 notify()。
  *
  * 使用示例：
  * @code
@@ -209,16 +211,36 @@ class ConditionVariable : public std::enable_shared_from_this<ConditionVariable>
      * @brief 通知一个等待者
      */
     void notify_one() noexcept {
-        std::lock_guard lock(mutex_);
-        cv_.notify_one();
+        std::unique_lock lock(mutex_);
+        while (!waiters_.empty()) {
+            auto waiter = waiters_.front();
+            waiters_.pop_front();
+
+            // 尝试将状态从 Pending(0) 切换到 Notified(1)
+            // 如果失败（已经是 TimedOut(2)），则忽略此等待者，继续下一个
+            int expected = 0;
+            if (waiter.state->compare_exchange_strong(expected, 1)) {
+                lock.unlock();
+                waiter.handle.resume();
+                return;
+            }
+        }
     }
 
     /**
      * @brief 通知所有等待者
      */
     void notify_all() noexcept {
-        std::lock_guard lock(mutex_);
-        cv_.notify_all();
+        std::unique_lock lock(mutex_);
+        auto local_list = std::move(waiters_);
+        lock.unlock();
+
+        for (auto& waiter : local_list) {
+            int expected = 0;
+            if (waiter.state->compare_exchange_strong(expected, 1)) {
+                waiter.handle.resume();
+            }
+        }
     }
 
     /**
@@ -233,20 +255,23 @@ class ConditionVariable : public std::enable_shared_from_this<ConditionVariable>
         WaitAwaitable(std::shared_ptr<ConditionVariable> cv, Predicate pred)
             : cv_(std::move(cv)), predicate_(std::move(pred)) {}
 
-        [[nodiscard]] bool await_ready() const { return predicate_(); }
+        [[nodiscard]] bool await_ready() const { return false; }
 
         /**
          * @brief 事件驱动等待
          *
-         * 使用条件变量等待，而非轮询。当 notify_one/notify_all 被调用时唤醒。
-         *
          * @param handle 协程句柄
-         * @return 对称转移到的协程句柄
+         * @return true 表示挂起，false 表示不挂起
          */
-        std::coroutine_handle<> await_suspend(std::coroutine_handle<> handle) {
+        bool await_suspend(std::coroutine_handle<> handle) {
             std::unique_lock lock(cv_->mutex_);
-            cv_->cv_.wait(lock, [this]() { return predicate_(); });
-            return handle;  // 对称转移：编译器负责安全恢复协程
+            if (predicate_()) {
+                return false;  // 条件已满足，不挂起
+            }
+
+            // 加入等待队列
+            cv_->waiters_.push_back({handle, std::make_shared<std::atomic<int>>(0)});
+            return true;  // 挂起
         }
 
         void await_resume() const noexcept {}
@@ -269,32 +294,30 @@ class ConditionVariable : public std::enable_shared_from_this<ConditionVariable>
                          std::chrono::milliseconds timeout)
             : cv_(std::move(cv)), predicate_(std::move(pred)), timeout_(timeout) {}
 
-        [[nodiscard]] bool await_ready() const { return predicate_(); }
+        [[nodiscard]] bool await_ready() const { return false; }
 
         /**
          * @brief 带超时的事件驱动等待
          *
-         * @param handle 协程句柄
-         * @return 对称转移到的协程句柄
+         * 实现需放在 Scheduler 定义之后
          */
-        std::coroutine_handle<> await_suspend(std::coroutine_handle<> handle) {
-            std::unique_lock lock(cv_->mutex_);
-            timed_out_ = !cv_->cv_.wait_for(lock, timeout_, [this]() { return predicate_(); });
-            return handle;
-        }
+        bool await_suspend(std::coroutine_handle<> handle);
 
         /**
          * @brief 返回是否超时
          *
          * @return 如果超时返回 true，条件满足返回 false
          */
-        [[nodiscard]] bool await_resume() const noexcept { return timed_out_; }
+        [[nodiscard]] bool await_resume() const noexcept {
+            // 状态 2 表示超时
+            return state_ && state_->load() == 2;
+        }
 
        private:
         std::shared_ptr<ConditionVariable> cv_;
         Predicate predicate_;
         std::chrono::milliseconds timeout_;
-        mutable bool timed_out_ = false;
+        std::shared_ptr<std::atomic<int>> state_;
     };
 
     /**
@@ -328,8 +351,13 @@ class ConditionVariable : public std::enable_shared_from_this<ConditionVariable>
     }
 
    private:
+    struct Waiter {
+        std::coroutine_handle<> handle;
+        std::shared_ptr<std::atomic<int>> state;  // 0: Pending, 1: Notified, 2: TimedOut
+    };
+
     std::mutex mutex_;
-    std::condition_variable cv_;
+    std::list<Waiter> waiters_;
 };
 
 /**
@@ -591,6 +619,39 @@ inline std::coroutine_handle<> SuspendFor::await_suspend(
     // 使用调度器：提交到定时队列，不阻塞线程
     Scheduler::instance().schedule_after(handle, duration_);
     return std::noop_coroutine();  // 真正挂起，等待调度器异步恢复
+}
+
+template <typename Predicate>
+    requires BoolPredicate<Predicate>
+bool ConditionVariable::WaitForAwaitable<Predicate>::await_suspend(
+    std::coroutine_handle<> handle) {
+    std::unique_lock lock(cv_->mutex_);
+    if (predicate_()) {
+        return false;  // 条件已满足，不挂起
+    }
+
+    // 初始化状态：0 = Pending
+    state_ = std::make_shared<std::atomic<int>>(0);
+
+    // 加入等待队列
+    cv_->waiters_.push_back({handle, state_});
+
+    // 注册超时回调
+    // 注意：这里捕获 state_ 和 handle，当超时发生时尝试恢复
+    auto state = state_;
+    Scheduler::instance().default_executor().execute_after(
+        [state, handle]() mutable {
+            // 尝试将状态从 Pending(0) 切换到 TimedOut(2)
+            int expected = 0;
+            if (state->compare_exchange_strong(expected, 2)) {
+                // 成功切换状态，说明没有被 notify，触发超时恢复
+                handle.resume();
+            }
+            // 如果失败（已经是 Notified(1)），说明已经被 notify 恢复，忽略超时
+        },
+        timeout_);
+
+    return true;  // 挂起
 }
 
 }  // namespace Corona::Kernel::Coro

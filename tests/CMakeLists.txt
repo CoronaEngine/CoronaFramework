@@ -109,6 +109,9 @@ corona_add_test(kernel_coro_executor_test kernel/coro_executor_test.cpp)
 # Coroutine 多线程测试
 corona_add_test(kernel_coro_mt_test kernel/coro_mt_test.cpp)
 
+# ConditionVariable 异步测试
+corona_add_test(kernel_coro_cv_test kernel/coro_cv_test.cpp)
+
 # ========================================
 # 启用测试
 # ========================================
