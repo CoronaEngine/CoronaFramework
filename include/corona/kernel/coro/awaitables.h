@@ -23,12 +23,9 @@ namespace Corona::Kernel::Coro {
 // ========================================
 
 /**
- * @brief 延时等待器
+ * @brief 延时等待器（调度器模式）
  *
- * 在指定时间后恢复协程执行。
- * 支持两种模式：
- * - 调度器模式（默认）：使用定时器调度器，不阻塞线程
- * - 阻塞模式：使用 sleep，会阻塞当前线程
+ * 在指定时间后恢复协程执行。使用调度器，不阻塞线程。
  */
 class SuspendFor {
    public:
@@ -36,11 +33,8 @@ class SuspendFor {
      * @brief 构造延时等待器
      *
      * @param duration 延时时长
-     * @param use_scheduler 是否使用调度器（默认 true）
      */
-    explicit SuspendFor(std::chrono::milliseconds duration,
-                        bool use_scheduler = true) noexcept
-        : duration_(duration), use_scheduler_(use_scheduler) {}
+    explicit SuspendFor(std::chrono::milliseconds duration) noexcept : duration_(duration) {}
 
     /**
      * @brief 检查是否可以立即返回
@@ -52,11 +46,10 @@ class SuspendFor {
     /**
      * @brief 挂起协程并在延时后恢复
      *
-     * 如果使用调度器模式，将协程提交到调度器的定时队列，不阻塞线程。
-     * 如果使用阻塞模式，使用 sleep 阻塞当前线程。
+     * 将协程提交到调度器的定时队列，不阻塞线程。
      *
      * @param handle 协程句柄
-     * @return noop_coroutine（调度器模式）或 handle（阻塞模式）
+     * @return noop_coroutine 表示真正挂起
      */
     std::coroutine_handle<> await_suspend(std::coroutine_handle<> handle) const;
 
@@ -67,7 +60,51 @@ class SuspendFor {
 
    private:
     std::chrono::milliseconds duration_;
-    bool use_scheduler_;
+};
+
+/**
+ * @brief 延时等待器（阻塞模式）
+ *
+ * 在指定时间后恢复协程执行。使用 sleep 阻塞当前线程。
+ * 此模式适用于 Task::get() 同步等待场景。
+ */
+class SuspendForBlocking {
+   public:
+    /**
+     * @brief 构造阻塞延时等待器
+     *
+     * @param duration 延时时长
+     */
+    explicit SuspendForBlocking(std::chrono::milliseconds duration) noexcept
+        : duration_(duration) {}
+
+    /**
+     * @brief 检查是否可以立即返回
+     *
+     * 如果延时为 0 或负数，则不需要挂起
+     */
+    [[nodiscard]] bool await_ready() const noexcept { return duration_.count() <= 0; }
+
+    /**
+     * @brief 阻塞等待后返回
+     *
+     * 使用 sleep 阻塞当前线程，然后返回 false 表示不挂起（因为等待已完成）。
+     *
+     * @param handle 协程句柄（未使用）
+     * @return false 表示不挂起，协程立即继续执行
+     */
+    bool await_suspend(std::coroutine_handle<> /*handle*/) const noexcept {
+        std::this_thread::sleep_for(duration_);
+        return false;  // 不挂起，sleep 完成后立即继续
+    }
+
+    /**
+     * @brief 恢复后的操作（无操作）
+     */
+    void await_resume() const noexcept {}
+
+   private:
+    std::chrono::milliseconds duration_;
 };
 
 /**
@@ -77,28 +114,28 @@ class SuspendFor {
  * @return SuspendFor 等待器
  */
 [[nodiscard]] inline SuspendFor suspend_for(std::chrono::milliseconds duration) {
-    return SuspendFor{duration, true};
+    return SuspendFor{duration};
 }
 
 /**
  * @brief 便捷函数：延时指定时间（阻塞模式）
  *
  * @param duration 延时时长
- * @return SuspendFor 等待器
+ * @return SuspendForBlocking 等待器
  */
-[[nodiscard]] inline SuspendFor suspend_for_blocking(std::chrono::milliseconds duration) {
-    return SuspendFor{duration, false};
+[[nodiscard]] inline SuspendForBlocking suspend_for_blocking(std::chrono::milliseconds duration) {
+    return SuspendForBlocking{duration};
 }
 
 /**
  * @brief 便捷函数：延时指定秒数（阻塞模式，与 Task::get() 兼容）
  *
  * @param seconds 秒数
- * @return SuspendFor 等待器
+ * @return SuspendForBlocking 等待器
  */
-[[nodiscard]] inline SuspendFor suspend_for_seconds(double seconds) {
-    return SuspendFor{
-        std::chrono::milliseconds{static_cast<std::int64_t>(seconds * 1000)}, false};
+[[nodiscard]] inline SuspendForBlocking suspend_for_seconds(double seconds) {
+    return SuspendForBlocking{
+        std::chrono::milliseconds{static_cast<std::int64_t>(seconds * 1000)}};
 }
 
 // ========================================
@@ -551,15 +588,9 @@ namespace Corona::Kernel::Coro {
 
 inline std::coroutine_handle<> SuspendFor::await_suspend(
     std::coroutine_handle<> handle) const {
-    if (use_scheduler_) {
-        // 使用调度器：提交到定时队列，不阻塞线程
-        Scheduler::instance().schedule_after(handle, duration_);
-        return std::noop_coroutine();  // 真正挂起，等待调度器异步恢复
-    } else {
-        // 阻塞模式：使用 sleep
-        std::this_thread::sleep_for(duration_);
-        return handle;  // 对称转移：编译器负责安全恢复协程
-    }
+    // 使用调度器：提交到定时队列，不阻塞线程
+    Scheduler::instance().schedule_after(handle, duration_);
+    return std::noop_coroutine();  // 真正挂起，等待调度器异步恢复
 }
 
 }  // namespace Corona::Kernel::Coro

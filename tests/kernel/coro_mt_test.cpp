@@ -423,6 +423,276 @@ TEST(CoroMT, MixedOperations) {
 }
 
 // ========================================
+// ConditionVariable 多线程测试
+// ========================================
+
+TEST(CoroMT, ConditionVariableConcurrentNotify) {
+    auto cv = make_condition_variable();
+    std::atomic<int> counter{0};
+    std::atomic<int> completed{0};
+    constexpr int num_waiters = 8;
+    constexpr int target = 100;
+
+    // 启动多个等待线程
+    std::vector<std::thread> waiters;
+    for (int i = 0; i < num_waiters; ++i) {
+        waiters.emplace_back([&]() {
+            auto task = [&]() -> Task<void> {
+                co_await cv->wait([&]() { return counter.load() >= target; });
+                completed.fetch_add(1);
+                co_return;
+            }();
+            task.get();
+        });
+    }
+
+    // 多个线程同时增加计数并通知
+    std::vector<std::thread> notifiers;
+    for (int i = 0; i < 4; ++i) {
+        notifiers.emplace_back([&]() {
+            for (int j = 0; j < 25; ++j) {
+                counter.fetch_add(1);
+                cv->notify_all();
+                std::this_thread::sleep_for(std::chrono::milliseconds{1});
+            }
+        });
+    }
+
+    for (auto& t : notifiers) {
+        t.join();
+    }
+
+    for (auto& t : waiters) {
+        t.join();
+    }
+
+    ASSERT_EQ(counter.load(), target);
+    ASSERT_EQ(completed.load(), num_waiters);
+}
+
+TEST(CoroMT, ConditionVariableRapidNotify) {
+    auto cv = make_condition_variable();
+    std::atomic<bool> flag{false};
+    std::atomic<bool> completed{false};
+
+    // 等待线程
+    std::thread waiter([&]() {
+        auto task = [&]() -> Task<void> {
+            co_await cv->wait([&]() { return flag.load(); });
+            completed = true;
+            co_return;
+        }();
+        task.get();
+    });
+
+    // 快速连续通知（可能在等待开始前）
+    for (int i = 0; i < 100; ++i) {
+        cv->notify_one();
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds{20});
+    flag = true;
+    cv->notify_one();
+
+    waiter.join();
+    ASSERT_TRUE(completed);
+}
+
+TEST(CoroMT, ConditionVariableTimeoutConcurrent) {
+    auto cv = make_condition_variable();
+    std::atomic<int> timed_out_count{0};
+    std::atomic<int> success_count{0};
+    constexpr int num_tasks = 10;
+
+    std::vector<std::thread> threads;
+    for (int i = 0; i < num_tasks; ++i) {
+        threads.emplace_back([&, i]() {
+            auto task = [&, i]() -> Task<void> {
+                // 奇数索引的任务使用较短超时（会超时）
+                // 偶数索引使用较长超时，条件会被满足
+                bool result = co_await cv->wait_for(
+                    []() { return false; },
+                    std::chrono::milliseconds{(i % 2 == 0) ? 200 : 30});
+                if (result) {
+                    timed_out_count.fetch_add(1);
+                } else {
+                    success_count.fetch_add(1);
+                }
+                co_return;
+            }();
+            task.get();
+        });
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    // 所有任务都应该超时（因为条件永远不满足）
+    ASSERT_EQ(timed_out_count.load(), num_tasks);
+    ASSERT_EQ(success_count.load(), 0);
+}
+
+// ========================================
+// SuspendFor 多线程测试
+// ========================================
+
+TEST(CoroMT, SuspendForBlockingConcurrent) {
+    std::atomic<int> completed{0};
+    constexpr int num_threads = 8;
+
+    std::vector<std::thread> threads;
+    for (int i = 0; i < num_threads; ++i) {
+        threads.emplace_back([&, i]() {
+            auto task = [i]() -> Task<int> {
+                co_await suspend_for_blocking(std::chrono::milliseconds{10 + i * 5});
+                co_return i;
+            }();
+            int result = task.get();
+            ASSERT_EQ(result, i);
+            completed.fetch_add(1);
+        });
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    ASSERT_EQ(completed.load(), num_threads);
+}
+
+// ========================================
+// Task 异常多线程测试
+// ========================================
+
+TEST(CoroMT, TaskExceptionConcurrent) {
+    std::atomic<int> caught{0};
+    std::atomic<int> succeeded{0};
+    constexpr int num_threads = 20;
+
+    std::vector<std::thread> threads;
+    for (int i = 0; i < num_threads; ++i) {
+        threads.emplace_back([&, i]() {
+            auto task = [i]() -> Task<int> {
+                if (i % 2 == 0) {
+                    throw std::runtime_error("Even index error");
+                }
+                co_return i;
+            }();
+
+            try {
+                int result = task.get();
+                ASSERT_EQ(result, i);
+                succeeded.fetch_add(1);
+            } catch (const std::runtime_error&) {
+                caught.fetch_add(1);
+            }
+        });
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    ASSERT_EQ(caught.load(), num_threads / 2);
+    ASSERT_EQ(succeeded.load(), num_threads / 2);
+}
+
+// ========================================
+// Generator 多线程独立实例测试
+// ========================================
+
+Generator<int> mt_fibonacci(int count) {
+    int a = 0, b = 1;
+    for (int i = 0; i < count; ++i) {
+        co_yield a;
+        int next = a + b;
+        a = b;
+        b = next;
+    }
+}
+
+TEST(CoroMT, GeneratorIndependentInstances) {
+    constexpr int num_threads = 4;
+    constexpr int fib_count = 20;
+    std::atomic<int> completed{0};
+
+    // 预计算正确的斐波那契和
+    int expected_sum = 0;
+    {
+        auto gen = mt_fibonacci(fib_count);
+        for (int n : gen) {
+            expected_sum += n;
+        }
+    }
+
+    std::vector<std::thread> threads;
+    for (int t = 0; t < num_threads; ++t) {
+        threads.emplace_back([&, expected_sum]() {
+            auto gen = mt_fibonacci(fib_count);
+            int sum = 0;
+            for (int n : gen) {
+                sum += n;
+            }
+            ASSERT_EQ(sum, expected_sum);
+            completed.fetch_add(1);
+        });
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    ASSERT_EQ(completed.load(), num_threads);
+}
+
+// ========================================
+// 协程与执行器混合多线程测试
+// ========================================
+
+TEST(CoroMT, TaskWithExecutorConcurrent) {
+    TbbExecutor executor(4);
+    std::atomic<int> task_completed{0};
+    std::atomic<int> executor_completed{0};
+    constexpr int num_iterations = 50;
+
+    std::vector<std::thread> threads;
+
+    // 线程组1: 运行协程任务
+    for (int t = 0; t < 2; ++t) {
+        threads.emplace_back([&]() {
+            for (int i = 0; i < num_iterations; ++i) {
+                auto task = []() -> Task<int> {
+                    co_await suspend_for_blocking(std::chrono::milliseconds{1});
+                    co_return 42;
+                }();
+                task.get();
+                task_completed.fetch_add(1);
+            }
+        });
+    }
+
+    // 线程组2: 向执行器提交任务
+    for (int t = 0; t < 2; ++t) {
+        threads.emplace_back([&]() {
+            for (int i = 0; i < num_iterations; ++i) {
+                executor.execute([&]() {
+                    executor_completed.fetch_add(1);
+                });
+            }
+        });
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+    executor.wait();
+
+    ASSERT_EQ(task_completed.load(), 2 * num_iterations);
+    ASSERT_EQ(executor_completed.load(), 2 * num_iterations);
+}
+
+// ========================================
 // Main
 // ========================================
 

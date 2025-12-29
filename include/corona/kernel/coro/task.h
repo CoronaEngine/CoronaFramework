@@ -1,8 +1,10 @@
 #pragma once
 
+#include <atomic>
 #include <coroutine>
 #include <exception>
 #include <optional>
+#include <stdexcept>
 #include <utility>
 #include <type_traits>
 
@@ -23,6 +25,78 @@ template <typename T>
 class Task;
 
 namespace detail {
+
+/**
+ * @brief 同步等待事件
+ */
+struct SyncWaitEvent {
+    std::atomic<bool> set{false};
+    void wait() {
+        while (!set.load(std::memory_order_acquire)) {
+            set.wait(false);
+        }
+    }
+    void signal() {
+        set.store(true, std::memory_order_release);
+        set.notify_one();
+    }
+};
+
+struct SyncWaitTask;
+
+/**
+ * @brief 同步等待任务 Promise
+ */
+struct SyncWaitTaskPromise {
+    SyncWaitEvent* event = nullptr;
+    std::exception_ptr exception;
+
+    std::suspend_always initial_suspend() noexcept { return {}; }
+
+    struct FinalAwaiter {
+        bool await_ready() noexcept { return false; }
+        void await_suspend(std::coroutine_handle<SyncWaitTaskPromise> h) noexcept {
+            if (h.promise().event) h.promise().event->signal();
+        }
+        void await_resume() noexcept {}
+    };
+
+    FinalAwaiter final_suspend() noexcept { return {}; }
+    void return_void() noexcept {}
+    void unhandled_exception() noexcept { exception = std::current_exception(); }
+
+    SyncWaitTask get_return_object() noexcept;
+};
+
+/**
+ * @brief 同步等待任务
+ */
+struct SyncWaitTask {
+    using promise_type = SyncWaitTaskPromise;
+    std::coroutine_handle<promise_type> handle;
+
+    explicit SyncWaitTask(std::coroutine_handle<promise_type> h) : handle(h) {}
+    ~SyncWaitTask() {
+        if (handle) handle.destroy();
+    }
+    SyncWaitTask(SyncWaitTask&& other) noexcept : handle(std::exchange(other.handle, nullptr)) {}
+    SyncWaitTask& operator=(SyncWaitTask&& other) noexcept {
+        if (this != &other) {
+            if (handle) handle.destroy();
+            handle = std::exchange(other.handle, nullptr);
+        }
+        return *this;
+    }
+
+    void start(SyncWaitEvent* event) {
+        handle.promise().event = event;
+        handle.resume();
+    }
+};
+
+inline SyncWaitTask SyncWaitTaskPromise::get_return_object() noexcept {
+    return SyncWaitTask{std::coroutine_handle<SyncWaitTaskPromise>::from_promise(*this)};
+}
 
 /**
  * @brief Task Promise 基类
@@ -162,6 +236,16 @@ class TaskPromise<void> : public TaskPromiseBase {
 
 }  // namespace detail
 
+}  // namespace Corona::Kernel::Coro
+
+// 特化 coroutine_traits 以支持 SyncWaitTask
+template <typename... Args>
+struct std::coroutine_traits<Corona::Kernel::Coro::detail::SyncWaitTask, Args...> {
+    using promise_type = Corona::Kernel::Coro::detail::SyncWaitTaskPromise;
+};
+
+namespace Corona::Kernel::Coro {
+
 /**
  * @brief 异步任务类型
  *
@@ -292,19 +376,56 @@ class Task {
     /**
      * @brief 阻塞等待任务完成并获取结果
      *
-     * 注意：此方法会阻塞当前线程，仅适用于测试或主函数
+     * 使用同步等待机制，支持异步任务的等待。
      *
      * @return 任务的返回值
      * @throws 任务执行过程中抛出的异常
      */
     T get() {
-        while (handle_ && !handle_.done()) {
-            handle_.resume();
+        if (!handle_) {
+            throw std::runtime_error("Task is invalid");
         }
-        if constexpr (std::is_void_v<T>) {
-            handle_.promise().result();
-        } else {
-            return std::move(handle_.promise()).result();
+        if (handle_.done()) {
+            if constexpr (std::is_void_v<T>) {
+                handle_.promise().result();
+                return;
+            } else {
+                return std::move(handle_.promise()).result();
+            }
+        }
+
+        detail::SyncWaitEvent event;
+        std::exception_ptr ex;
+        std::optional<std::conditional_t<std::is_void_v<T>, int, T>> result_val;
+
+        // 创建一个同步等待任务来包装当前任务
+        auto waiter = [&](Task<T>&& t) -> detail::SyncWaitTask {
+            try {
+                if constexpr (std::is_void_v<T>) {
+                    co_await t;
+                } else {
+                    result_val = co_await t;
+                }
+            } catch (...) {
+                ex = std::current_exception();
+            }
+            // event 在 promise 的 final_suspend 中被 signal
+        }(std::move(*this));
+
+        // 启动等待任务
+        waiter.start(&event);
+
+        // 阻塞等待
+        event.wait();
+
+        // 检查异常
+        if (ex) {
+            std::rethrow_exception(ex);
+        }
+
+        // 返回结果
+        if constexpr (!std::is_void_v<T>) {
+            return std::move(*result_val);
         }
     }
 

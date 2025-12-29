@@ -16,6 +16,13 @@
 using namespace Corona::Kernel::Coro;
 using namespace CoronaTest;
 
+// 辅助类：确保测试结束时重置调度器，即使发生异常
+struct SchedulerGuard {
+    ~SchedulerGuard() {
+        Scheduler::instance().reset();
+    }
+};
+
 // ========================================
 // InlineExecutor 测试
 // ========================================
@@ -158,6 +165,7 @@ TEST(Scheduler, ScheduleCoroutine) {
         executed = true;
         co_return;
     }();
+    SchedulerGuard guard;
 
     // 手动启动任务
     task.resume();
@@ -170,8 +178,6 @@ TEST(Scheduler, ScheduleCoroutine) {
     }
 
     ASSERT_TRUE(executed);
-
-    Scheduler::instance().reset();
 }
 
 TEST(Scheduler, ScheduleAfter) {
@@ -189,6 +195,7 @@ TEST(Scheduler, ScheduleAfter) {
         completed = true;
         co_return;
     }();
+    SchedulerGuard guard;
 
     // 启动任务
     task.resume();
@@ -202,8 +209,6 @@ TEST(Scheduler, ScheduleAfter) {
 
     ASSERT_TRUE(completed);
     ASSERT_GE(elapsed_ms.load(), 40);
-
-    Scheduler::instance().reset();
 }
 
 // ========================================
@@ -234,6 +239,7 @@ TEST(Runner, SpawnTask) {
     Scheduler::instance().reset();
 
     std::atomic<bool> completed{false};
+    SchedulerGuard guard;
 
     auto task = [&]() -> Task<void> {
         std::this_thread::sleep_for(std::chrono::milliseconds{10});
@@ -249,7 +255,6 @@ TEST(Runner, SpawnTask) {
     }
 
     ASSERT_TRUE(completed);
-    Scheduler::instance().reset();
 }
 
 // ========================================
@@ -604,6 +609,7 @@ TEST(Scheduler, MultipleCoroutinesOnPool) {
     Scheduler::instance().reset();
     
     std::atomic<int> completed_count{0};
+    SchedulerGuard guard;
     constexpr int num_tasks = 5;
     
     // 使用更简单的方式：直接在默认执行器上运行
@@ -621,7 +627,6 @@ TEST(Scheduler, MultipleCoroutinesOnPool) {
     }
     
     ASSERT_EQ(completed_count.load(), num_tasks);
-    Scheduler::instance().reset();
 }
 
 TEST(Scheduler, NestedScheduleOnPool) {
@@ -642,13 +647,13 @@ TEST(Scheduler, NestedScheduleOnPool) {
         outer_completed = true;
         co_return;
     }();
+    SchedulerGuard guard;
     
     // 直接运行而不是通过调度器
     outer_task.get();
     
     ASSERT_TRUE(inner_completed);
     ASSERT_TRUE(outer_completed);
-    Scheduler::instance().reset();
 }
 
 // ========================================
@@ -659,6 +664,7 @@ TEST(Runner, SpawnMultipleTasks) {
     Scheduler::instance().reset();
     
     std::atomic<int> counter{0};
+    SchedulerGuard guard;
     constexpr int num_tasks = 5;
     
     for (int i = 0; i < num_tasks; ++i) {
@@ -679,7 +685,6 @@ TEST(Runner, SpawnMultipleTasks) {
     }
     
     ASSERT_EQ(counter.load(), num_tasks);
-    Scheduler::instance().reset();
 }
 
 TEST(Runner, RunWithException) {
@@ -778,6 +783,212 @@ TEST(Executor, GlobalInlineExecutor) {
     bool executed = false;
     exec1.execute([&]() { executed = true; });
     ASSERT_TRUE(executed);
+}
+
+// ========================================
+// ConditionVariable 与执行器测试
+// ========================================
+
+TEST(Awaitable, ConditionVariableBasicUsage) {
+    auto cv = make_condition_variable();
+    std::atomic<bool> flag{false};
+    std::atomic<bool> waiting{false};
+    std::atomic<bool> completed{false};
+
+    std::thread waiter([&]() {
+        auto task = [&]() -> Task<void> {
+            waiting = true;  // 标记进入等待
+            co_await cv->wait([&]() { return flag.load(); });
+            completed = true;
+            co_return;
+        }();
+        task.get();
+    });
+
+    // 等待线程进入等待状态
+    int timeout_ms = 500;
+    while (!waiting.load() && timeout_ms > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+        timeout_ms -= 10;
+    }
+    ASSERT_TRUE(waiting.load());
+    ASSERT_FALSE(completed.load());
+
+    flag = true;
+    cv->notify_one();
+    waiter.join();
+
+    ASSERT_TRUE(completed.load());
+}
+
+TEST(Awaitable, ConditionVariableTimeout) {
+    auto cv = make_condition_variable();
+
+    auto task = []() -> Task<bool> {
+        auto cv_local = make_condition_variable();
+        bool timed_out = co_await cv_local->wait_for(
+            []() { return false; },
+            std::chrono::milliseconds{30});
+        co_return timed_out;
+    }();
+
+    auto start = std::chrono::steady_clock::now();
+    bool result = task.get();
+    auto end = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    ASSERT_TRUE(result);  // 应该超时
+    ASSERT_GE(elapsed.count(), 25);
+}
+
+TEST(Awaitable, ConditionVariableImmediateReturn) {
+    auto cv = make_condition_variable();
+
+    auto task = [&]() -> Task<int> {
+        auto start = std::chrono::steady_clock::now();
+        co_await cv->wait([]() { return true; });  // 条件已满足
+        auto end = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        co_return static_cast<int>(elapsed.count());
+    }();
+
+    int elapsed = task.get();
+    ASSERT_LT(elapsed, 10);  // 应该立即返回
+}
+
+TEST(Awaitable, ConditionVariableNotifyAll) {
+    auto cv = make_condition_variable();
+    std::atomic<int> ready{0};
+    std::atomic<int> waiting{0};
+    std::atomic<int> completed{0};
+    constexpr int num_waiters = 3;
+
+    std::vector<std::thread> waiters;
+    for (int i = 0; i < num_waiters; ++i) {
+        waiters.emplace_back([&]() {
+            auto task = [&]() -> Task<void> {
+                waiting.fetch_add(1);  // 标记进入等待
+                co_await cv->wait([&]() { return ready.load() >= 1; });
+                completed.fetch_add(1);
+                co_return;
+            }();
+            task.get();
+        });
+    }
+
+    // 等待所有线程进入等待状态
+    int timeout_ms = 1000;
+    while (waiting.load() < num_waiters && timeout_ms > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+        timeout_ms -= 10;
+    }
+    ASSERT_EQ(waiting.load(), num_waiters);
+    ASSERT_EQ(completed.load(), 0);
+
+    ready = 1;
+    cv->notify_all();
+
+    for (auto& t : waiters) {
+        t.join();
+    }
+    ASSERT_EQ(completed.load(), num_waiters);
+}
+
+// ========================================
+// SuspendFor 阻塞模式测试
+// ========================================
+
+TEST(Awaitable, SuspendForBlockingBasic) {
+    auto task = []() -> Task<int> {
+        auto start = std::chrono::steady_clock::now();
+        co_await suspend_for_blocking(std::chrono::milliseconds{40});
+        auto end = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        co_return static_cast<int>(elapsed.count());
+    }();
+
+    int elapsed = task.get();
+    ASSERT_GE(elapsed, 30);
+    // 放宽上限，避免在高负载系统上偶发失败
+    ASSERT_LE(elapsed, 2000);
+}
+
+TEST(Awaitable, SuspendForBlockingZero) {
+    auto task = []() -> Task<bool> {
+        co_await suspend_for_blocking(std::chrono::milliseconds{0});
+        co_return true;
+    }();
+
+    ASSERT_TRUE(task.get());
+}
+
+TEST(Awaitable, SuspendForBlockingNegative) {
+    auto task = []() -> Task<int> {
+        auto start = std::chrono::steady_clock::now();
+        co_await suspend_for_blocking(std::chrono::milliseconds{-50});
+        auto end = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        co_return static_cast<int>(elapsed.count());
+    }();
+
+    int elapsed = task.get();
+    ASSERT_LT(elapsed, 50);  // 负数应该立即返回
+}
+
+TEST(Awaitable, SuspendForBlockingMultiple) {
+    auto task = []() -> Task<int> {
+        auto start = std::chrono::steady_clock::now();
+        for (int i = 0; i < 3; ++i) {
+            co_await suspend_for_blocking(std::chrono::milliseconds{15});
+        }
+        auto end = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        co_return static_cast<int>(elapsed.count());
+    }();
+
+    int elapsed = task.get();
+    ASSERT_GE(elapsed, 35);  // 至少 45ms（允许误差）
+}
+
+// ========================================
+// TbbExecutor 边界测试
+// ========================================
+
+TEST(Executor, TbbExecutorZeroTasks) {
+    TbbExecutor executor;
+    executor.wait();  // 没有任务时应该立即返回
+    ASSERT_TRUE(executor.is_running());
+    executor.shutdown();
+    ASSERT_FALSE(executor.is_running());
+}
+
+TEST(Executor, TbbExecutorDelayZero) {
+    TbbExecutor executor;
+    std::atomic<bool> executed{false};
+
+    executor.execute_after([&]() {
+        executed = true;
+    }, std::chrono::milliseconds{0});
+
+    std::this_thread::sleep_for(std::chrono::milliseconds{50});
+    executor.wait();
+
+    ASSERT_TRUE(executed);
+}
+
+TEST(Executor, TbbExecutorMultipleShutdown) {
+    TbbExecutor executor;
+    std::atomic<int> counter{0};
+
+    executor.execute([&]() { counter++; });
+    executor.wait();
+
+    executor.shutdown();
+    executor.shutdown();  // 多次关闭不应该崩溃
+    executor.shutdown();
+
+    ASSERT_FALSE(executor.is_running());
+    ASSERT_EQ(counter.load(), 1);
 }
 
 // ========================================

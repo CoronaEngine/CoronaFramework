@@ -744,6 +744,205 @@ TEST(CoroTask, ConditionVariableAlreadyTrue) {
     ASSERT_LT(elapsed, 10);  // 应该几乎立即返回
 }
 
+TEST(CoroTask, ConditionVariableMultipleWaiters) {
+    auto cv = make_condition_variable();
+    std::atomic<int> value{0};
+    std::atomic<int> woken{0};
+    constexpr int num_waiters = 5;
+
+    std::vector<std::thread> waiters;
+    for (int i = 0; i < num_waiters; ++i) {
+        waiters.emplace_back([&, threshold = i + 1]() {
+            auto task = [&, threshold]() -> Task<void> {
+                co_await cv->wait([&]() { return value.load() >= threshold; });
+                woken.fetch_add(1);
+                co_return;
+            }();
+            task.get();
+        });
+    }
+
+    // 给等待线程时间开始等待
+    std::this_thread::sleep_for(std::chrono::milliseconds{30});
+
+    // 逐步增加 value 并通知
+    for (int i = 1; i <= num_waiters; ++i) {
+        value = i;
+        cv->notify_all();
+        std::this_thread::sleep_for(std::chrono::milliseconds{20});
+    }
+
+    for (auto& t : waiters) {
+        t.join();
+    }
+
+    ASSERT_EQ(woken.load(), num_waiters);
+}
+
+TEST(CoroTask, ConditionVariableTimeoutZero) {
+    auto cv = make_condition_variable();
+    bool condition = false;
+
+    auto task = [&]() -> Task<bool> {
+        // 0 超时应该立即检查条件并返回
+        bool timed_out = co_await cv->wait_for(
+            [&]() { return condition; },
+            std::chrono::milliseconds{0});
+        co_return timed_out;
+    }();
+
+    bool result = task.get();
+    ASSERT_TRUE(result);  // 条件不满足，应该超时
+}
+
+TEST(CoroTask, ConditionVariableTimeoutConditionMetImmediately) {
+    auto cv = make_condition_variable();
+
+    auto task = [cv]() -> Task<bool> {
+        bool timed_out = co_await cv->wait_for(
+            []() { return true; },  // 条件已满足
+            std::chrono::milliseconds{100});
+        co_return timed_out;
+    }();
+
+    bool result = task.get();
+    ASSERT_FALSE(result);  // 条件满足，不应该超时
+}
+
+// ========================================
+// SuspendFor 边界测试
+// ========================================
+
+TEST(CoroTask, SuspendForBlockingNegativeDuration) {
+    // 负数时长应该立即返回
+    auto task = []() -> Task<int> {
+        auto start = std::chrono::steady_clock::now();
+        co_await suspend_for_blocking(std::chrono::milliseconds{-100});
+        auto end = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        co_return static_cast<int>(elapsed.count());
+    }();
+
+    int elapsed = task.get();
+    ASSERT_LT(elapsed, 50);  // 应该几乎立即返回
+}
+
+TEST(CoroTask, SuspendForBlockingChained) {
+    // 连续多次延时
+    auto task = []() -> Task<int> {
+        auto start = std::chrono::steady_clock::now();
+        co_await suspend_for_blocking(std::chrono::milliseconds{20});
+        co_await suspend_for_blocking(std::chrono::milliseconds{20});
+        co_await suspend_for_blocking(std::chrono::milliseconds{20});
+        auto end = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        co_return static_cast<int>(elapsed.count());
+    }();
+
+    int elapsed = task.get();
+    ASSERT_GE(elapsed, 50);   // 至少 60ms 总延时（允许误差）
+    ASSERT_LE(elapsed, 200);  // 不应该太久
+}
+
+TEST(CoroTask, SuspendForSecondsBasic) {
+    auto task = []() -> Task<int> {
+        auto start = std::chrono::steady_clock::now();
+        co_await suspend_for_seconds(0.05);  // 50ms
+        auto end = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        co_return static_cast<int>(elapsed.count());
+    }();
+
+    int elapsed = task.get();
+    ASSERT_GE(elapsed, 40);
+    ASSERT_LE(elapsed, 200);
+}
+
+// ========================================
+// Task 取消和资源清理测试
+// ========================================
+
+TEST(CoroTask, TaskDestroyedBeforeCompletion) {
+    // 测试任务在完成前被销毁不会崩溃
+    bool started = false;
+    {
+        auto task = [&]() -> Task<void> {
+            started = true;
+            co_await suspend_for_blocking(std::chrono::milliseconds{1000});
+            co_return;
+        }();
+        task.resume();  // 启动任务
+        // task 在这里被销毁，但协程尚未完成
+    }
+    ASSERT_TRUE(started);
+    // 没有崩溃就是成功
+}
+
+TEST(CoroTask, MoveOnlyTypeInTask) {
+    // 测试移动语义类型的正确处理
+    auto task = []() -> Task<std::unique_ptr<std::vector<int>>> {
+        auto vec = std::make_unique<std::vector<int>>();
+        vec->push_back(1);
+        vec->push_back(2);
+        vec->push_back(3);
+        co_return std::move(vec);
+    }();
+
+    auto result = task.get();
+    ASSERT_TRUE(result != nullptr);
+    ASSERT_EQ(result->size(), 3u);
+    ASSERT_EQ((*result)[0], 1);
+    ASSERT_EQ((*result)[2], 3);
+}
+
+// ========================================
+// 复杂协程流程测试
+// ========================================
+
+Task<int> recursive_task_sum(int n) {
+    if (n <= 0) {
+        co_return 0;
+    }
+    int rest = co_await recursive_task_sum(n - 1);
+    co_return n + rest;
+}
+
+TEST(CoroTask, RecursiveTask) {
+    auto task = recursive_task_sum(10);
+    int result = task.get();
+    ASSERT_EQ(result, 55);  // 1+2+...+10 = 55
+}
+
+Task<std::string> concat_task(std::string a, std::string b) {
+    co_return a + b;
+}
+
+TEST(CoroTask, TaskWithStringOperations) {
+    auto task = []() -> Task<std::string> {
+        std::string result = co_await concat_task("Hello", " ");
+        result = co_await concat_task(result, "World");
+        result = co_await concat_task(result, "!");
+        co_return result;
+    }();
+
+    std::string result = task.get();
+    ASSERT_EQ(result, "Hello World!");
+}
+
+TEST(CoroTask, TaskWithLoop) {
+    auto task = []() -> Task<int> {
+        int sum = 0;
+        for (int i = 0; i < 10; ++i) {
+            co_await suspend_for_blocking(std::chrono::milliseconds{1});
+            sum += i;
+        }
+        co_return sum;
+    }();
+
+    int result = task.get();
+    ASSERT_EQ(result, 45);  // 0+1+2+...+9 = 45
+}
+
 // ========================================
 // Main
 // ========================================
