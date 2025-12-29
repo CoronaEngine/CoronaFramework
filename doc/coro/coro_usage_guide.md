@@ -322,21 +322,32 @@ int main() {
 
 ### 4.1 suspend_for - 延时等待
 
+`suspend_for` supports two modes:
+- **Scheduler mode** (default): Uses timer scheduler, non-blocking
+- **Blocking mode**: Uses sleep, blocks current thread, compatible with `Task::get()`
+
 ```cpp
 Task<void> delay_example() {
     std::cout << "Starting..." << std::endl;
     
-    // 等待 100 毫秒
+    // Scheduler mode (default) - non-blocking, requires async executor
     co_await suspend_for(std::chrono::milliseconds{100});
     
     std::cout << "After 100ms" << std::endl;
     
-    // 等待 1.5 秒 (使用秒数)
+    // Blocking mode - compatible with Task::get()
+    co_await suspend_for_blocking(std::chrono::milliseconds{50});
+    
+    std::cout << "After 50ms" << std::endl;
+    
+    // Wait 1.5 seconds (blocking mode)
     co_await suspend_for_seconds(1.5);
     
     std::cout << "After 1.5 seconds" << std::endl;
 }
 ```
+
+> **Note**: When using `Task::get()` to wait synchronously, prefer `suspend_for_blocking` as scheduler mode requires an async executor.
 
 ### 4.2 yield - 让出执行
 
@@ -351,13 +362,72 @@ Task<void> cooperative_task() {
 }
 ```
 
-### 4.3 wait_until - 条件等待
+### 4.3 ConditionVariable - Event-Driven Wait (Recommended)
+
+`ConditionVariable` provides true event-driven waiting, avoiding CPU waste from polling:
+
+```cpp
+// Basic usage: Producer-Consumer pattern
+std::atomic<bool> data_ready{false};
+auto cv = make_condition_variable();
+
+Task<void> consumer_task() {
+    std::cout << "Waiting for data..." << std::endl;
+    
+    // Event-driven wait, no CPU consumption
+    co_await cv->wait([&]() { return data_ready.load(); });
+    
+    std::cout << "Data is ready!" << std::endl;
+}
+
+Task<void> producer_task() {
+    co_await suspend_for_blocking(std::chrono::milliseconds{200});
+    data_ready = true;
+    cv->notify_one();  // Notify waiter
+}
+```
+
+#### Wait with Timeout
+
+```cpp
+Task<std::string> wait_with_timeout_demo() {
+    auto cv = make_condition_variable();
+    bool condition = false;
+
+    // Wait for condition, max 100ms
+    bool timed_out = co_await cv->wait_for(
+        [&]() { return condition; },
+        std::chrono::milliseconds{100});
+
+    if (timed_out) {
+        co_return "Timed out";
+    } else {
+        co_return "Condition met";
+    }
+}
+```
+
+#### Notify Multiple Waiters
+
+```cpp
+auto cv = make_condition_variable();
+
+// Notify one waiter
+cv->notify_one();
+
+// Notify all waiters
+cv->notify_all();
+```
+
+### 4.4 wait_until - Polling Condition Wait (Deprecated)
+
+> **Note**: `wait_until` uses polling which consumes CPU resources. Use `ConditionVariable` instead.
 
 ```cpp
 Task<void> wait_for_ready() {
     std::atomic<bool> ready{false};
     
-    // 在另一个线程设置 ready
+    // Set ready in another thread
     std::thread worker([&ready]() {
         std::this_thread::sleep_for(std::chrono::milliseconds{500});
         ready = true;
@@ -365,7 +435,7 @@ Task<void> wait_for_ready() {
     
     std::cout << "Waiting for ready flag..." << std::endl;
     
-    // 等待条件满足
+    // Polling wait (not recommended, use ConditionVariable instead)
     co_await wait_until([&ready]() { return ready.load(); });
     
     std::cout << "Ready!" << std::endl;
@@ -373,11 +443,11 @@ Task<void> wait_for_ready() {
     worker.join();
 }
 
-// 带轮询间隔的版本
+// Version with polling interval
 Task<void> wait_with_interval() {
     int counter = 0;
     
-    // 每 50ms 检查一次条件
+    // Check every 50ms
     co_await wait_until(
         [&counter]() { return ++counter >= 10; },
         std::chrono::milliseconds{50}
@@ -387,7 +457,7 @@ Task<void> wait_with_interval() {
 }
 ```
 
-### 4.4 ready - 立即返回值
+### 4.5 ready - 立即返回值
 
 ```cpp
 Task<int> immediate_value() {
@@ -403,7 +473,7 @@ Task<void> immediate_void() {
 }
 ```
 
-### 4.5 switch_to - 切换执行器
+### 4.6 switch_to - 切换执行器
 
 ```cpp
 Task<void> switch_executor_example() {
@@ -927,21 +997,27 @@ Generator<int> lazy_data() {
 | `done()` | 检查是否完成 |
 | `operator bool()` | 检查是否有效 |
 
-### Awaitable 函数
+### Awaitable Functions
 
-| 函数 | 说明 |
-|------|------|
-| `suspend_for(duration)` | 延时等待 |
-| `suspend_for_seconds(secs)` | 延时指定秒数 |
-| `yield()` | 让出执行 |
-| `wait_until(pred)` | 等待条件满足 |
-| `wait_until(pred, interval)` | 带轮询间隔等待 |
-| `ready(value)` | 立即返回值 |
-| `ready()` | 立即返回 void |
-| `switch_to(executor)` | 切换到执行器 |
-| `switch_to_after(executor, delay)` | 延迟切换到执行器 |
-| `schedule_on_pool()` | 切换到默认线程池 |
-| `schedule_on_pool_after(delay)` | 延迟切换到线程池 |
+| Function | Description |
+|----------|-------------|
+| `suspend_for(duration)` | Delay wait (scheduler mode, non-blocking) |
+| `suspend_for_blocking(duration)` | Delay wait (blocking mode, compatible with Task::get()) |
+| `suspend_for_seconds(secs)` | Delay in seconds (blocking mode) |
+| `yield()` | Yield execution |
+| `make_condition_variable()` | Create condition variable |
+| `cv->wait(pred)` | Event-driven wait for condition |
+| `cv->wait_for(pred, timeout)` | Event-driven wait with timeout |
+| `cv->notify_one()` | Notify one waiter |
+| `cv->notify_all()` | Notify all waiters |
+| `wait_until(pred)` | Polling wait for condition (deprecated) |
+| `wait_until(pred, interval)` | Polling wait with interval (deprecated) |
+| `ready(value)` | Immediate return value |
+| `ready()` | Immediate return void |
+| `switch_to(executor)` | Switch to executor |
+| `switch_to_after(executor, delay)` | Delayed switch to executor |
+| `schedule_on_pool()` | Switch to default thread pool |
+| `schedule_on_pool_after(delay)` | Delayed switch to thread pool |
 
 ### TbbExecutor
 

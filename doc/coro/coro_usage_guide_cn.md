@@ -322,21 +322,32 @@ int main() {
 
 ### 4.1 suspend_for - 延时等待
 
+`suspend_for` 支持两种模式：
+- **调度器模式**（默认）：使用定时器调度器，不阻塞线程
+- **阻塞模式**：使用 sleep，会阻塞当前线程，与 `Task::get()` 兼容
+
 ```cpp
 Task<void> delay_example() {
     std::cout << "开始..." << std::endl;
     
-    // 等待 100 毫秒
+    // 调度器模式（默认）- 不阻塞线程，需配合异步执行器
     co_await suspend_for(std::chrono::milliseconds{100});
     
     std::cout << "100毫秒后" << std::endl;
     
-    // 等待 1.5 秒 (使用秒数)
+    // 阻塞模式 - 与 Task::get() 兼容
+    co_await suspend_for_blocking(std::chrono::milliseconds{50});
+    
+    std::cout << "50毫秒后" << std::endl;
+    
+    // 等待 1.5 秒 (使用秒数，阻塞模式)
     co_await suspend_for_seconds(1.5);
     
     std::cout << "1.5秒后" << std::endl;
 }
 ```
+
+> **注意**: 当使用 `Task::get()` 同步等待结果时，建议使用 `suspend_for_blocking`，因为调度器模式需要异步执行器配合。
 
 ### 4.2 yield - 让出执行
 
@@ -351,7 +362,66 @@ Task<void> cooperative_task() {
 }
 ```
 
-### 4.3 wait_until - 条件等待
+### 4.3 ConditionVariable - 事件驱动等待（推荐）
+
+`ConditionVariable` 提供真正的事件驱动等待，避免轮询带来的 CPU 浪费：
+
+```cpp
+// 基本用法：生产者-消费者模式
+std::atomic<bool> data_ready{false};
+auto cv = make_condition_variable();
+
+Task<void> consumer_task() {
+    std::cout << "等待数据..." << std::endl;
+    
+    // 事件驱动等待，不消耗 CPU
+    co_await cv->wait([&]() { return data_ready.load(); });
+    
+    std::cout << "数据已就绪!" << std::endl;
+}
+
+Task<void> producer_task() {
+    co_await suspend_for_blocking(std::chrono::milliseconds{200});
+    data_ready = true;
+    cv->notify_one();  // 通知等待者
+}
+```
+
+#### 带超时的等待
+
+```cpp
+Task<std::string> wait_with_timeout_demo() {
+    auto cv = make_condition_variable();
+    bool condition = false;
+
+    // 等待条件，最多 100ms
+    bool timed_out = co_await cv->wait_for(
+        [&]() { return condition; },
+        std::chrono::milliseconds{100});
+
+    if (timed_out) {
+        co_return "超时";
+    } else {
+        co_return "条件满足";
+    }
+}
+```
+
+#### 通知多个等待者
+
+```cpp
+auto cv = make_condition_variable();
+
+// 通知一个等待者
+cv->notify_one();
+
+// 通知所有等待者
+cv->notify_all();
+```
+
+### 4.4 wait_until - 轮询式条件等待（已废弃）
+
+> **注意**: `wait_until` 使用轮询方式，会消耗 CPU 资源。推荐使用 `ConditionVariable` 替代。
 
 ```cpp
 Task<void> wait_for_ready() {
@@ -365,7 +435,7 @@ Task<void> wait_for_ready() {
     
     std::cout << "等待就绪标志..." << std::endl;
     
-    // 等待条件满足
+    // 轮询等待条件满足（不推荐，建议使用 ConditionVariable）
     co_await wait_until([&ready]() { return ready.load(); });
     
     std::cout << "就绪!" << std::endl;
@@ -387,7 +457,7 @@ Task<void> wait_with_interval() {
 }
 ```
 
-### 4.4 ready - 立即返回值
+### 4.5 ready - 立即返回值
 
 ```cpp
 Task<int> immediate_value() {
@@ -403,7 +473,7 @@ Task<void> immediate_void() {
 }
 ```
 
-### 4.5 switch_to - 切换执行器
+### 4.6 switch_to - 切换执行器
 
 ```cpp
 Task<void> switch_executor_example() {
@@ -931,11 +1001,17 @@ Generator<int> lazy_data() {
 
 | 函数 | 说明 |
 |------|------|
-| `suspend_for(duration)` | 延时等待 |
-| `suspend_for_seconds(secs)` | 延时指定秒数 |
+| `suspend_for(duration)` | 延时等待（调度器模式，不阻塞线程） |
+| `suspend_for_blocking(duration)` | 延时等待（阻塞模式，与 Task::get() 兼容） |
+| `suspend_for_seconds(secs)` | 延时指定秒数（阻塞模式） |
 | `yield()` | 让出执行 |
-| `wait_until(pred)` | 等待条件满足 |
-| `wait_until(pred, interval)` | 带轮询间隔等待 |
+| `make_condition_variable()` | 创建条件变量 |
+| `cv->wait(pred)` | 事件驱动等待条件满足 |
+| `cv->wait_for(pred, timeout)` | 带超时的事件驱动等待 |
+| `cv->notify_one()` | 通知一个等待者 |
+| `cv->notify_all()` | 通知所有等待者 |
+| `wait_until(pred)` | 轮询等待条件满足（已废弃） |
+| `wait_until(pred, interval)` | 带轮询间隔等待（已废弃） |
 | `ready(value)` | 立即返回值 |
 | `ready()` | 立即返回 void |
 | `switch_to(executor)` | 切换到执行器 |
