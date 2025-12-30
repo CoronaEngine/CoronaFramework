@@ -63,6 +63,10 @@
 // 并行组合
 #include "when_all.h"
 
+// 同步原语
+#include "async_scope.h"
+#include "sync.h"
+
 namespace Corona::Kernel::Coro {
 
 /**
