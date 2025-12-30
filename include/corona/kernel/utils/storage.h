@@ -451,6 +451,7 @@ class Storage {
             if (parent_buffer->occupied[index].load(std::memory_order_acquire)) {
                 return ReadHandle(ptr, std::move(slot_lock));
             }
+            throw std::runtime_error("Attempt to acquire read handle for unoccupied object ID: " + std::to_string(id));
         }
         throw std::runtime_error("Parent buffer not found during read acquisition");
     }
@@ -498,6 +499,7 @@ class Storage {
             if (parent_buffer->occupied[index].load(std::memory_order_acquire)) {
                 return WriteHandle(ptr, std::move(slot_lock));
             }
+            throw std::runtime_error("Attempt to acquire write handle for unoccupied object ID: " + std::to_string(id));
         }
         throw std::runtime_error("Parent buffer not found during write acquisition");
     }

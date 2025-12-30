@@ -22,13 +22,14 @@ struct WhenAllState {
 
     explicit WhenAllState(size_t count) : counter(count) {}
 
-    void on_task_completed() {
+    std::coroutine_handle<> on_task_completed() {
         // fetch_sub returns the value BEFORE subtraction
         if (counter.fetch_sub(1, std::memory_order_acq_rel) == 1) {
             if (awaiting_coroutine) {
-                awaiting_coroutine.resume();
+                return awaiting_coroutine;
             }
         }
+        return std::noop_coroutine();
     }
 
     void set_exception(std::exception_ptr e) {
@@ -72,31 +73,75 @@ struct WhenAllResult<void> {
 template <typename T>
 using when_all_result_t = typename WhenAllResult<T>::type;
 
-template <typename T>
-Task<void> when_all_wrapper(Task<T> task, std::shared_ptr<WhenAllState> state, when_all_result_t<T>* result) {
-    try {
-        if constexpr (std::is_void_v<T>) {
-            co_await task;
-            *result = std::monostate{};
-        } else {
-            *result = co_await task;
+struct WhenAllTask;
+
+struct WhenAllTaskPromise {
+    std::shared_ptr<WhenAllState> state;
+
+    std::suspend_always initial_suspend() noexcept { return {}; }
+
+    struct FinalAwaiter {
+        bool await_ready() noexcept { return false; }
+        std::coroutine_handle<> await_suspend(std::coroutine_handle<WhenAllTaskPromise> h) noexcept {
+            return h.promise().state->on_task_completed();
         }
-    } catch (...) {
+        void await_resume() noexcept {}
+    };
+
+    FinalAwaiter final_suspend() noexcept { return {}; }
+    void return_void() noexcept {}
+    void unhandled_exception() noexcept {
         state->set_exception(std::current_exception());
     }
-    state->on_task_completed();
+
+    WhenAllTask get_return_object() noexcept;
+};
+
+struct WhenAllTask {
+    using promise_type = WhenAllTaskPromise;
+    std::coroutine_handle<promise_type> handle;
+
+    explicit WhenAllTask(std::coroutine_handle<promise_type> h) : handle(h) {}
+    ~WhenAllTask() {
+        if (handle) handle.destroy();
+    }
+    WhenAllTask(WhenAllTask&& other) noexcept : handle(std::exchange(other.handle, nullptr)) {}
+    WhenAllTask& operator=(WhenAllTask&& other) noexcept {
+        if (this != &other) {
+            if (handle) handle.destroy();
+            handle = std::exchange(other.handle, nullptr);
+        }
+        return *this;
+    }
+
+    void start(std::shared_ptr<WhenAllState> s) {
+        handle.promise().state = std::move(s);
+        handle.resume();
+    }
+};
+
+inline WhenAllTask WhenAllTaskPromise::get_return_object() noexcept {
+    return WhenAllTask{std::coroutine_handle<WhenAllTaskPromise>::from_promise(*this)};
+}
+
+template <typename T>
+WhenAllTask when_all_wrapper(Task<T> task, when_all_result_t<T>* result) {
+    if constexpr (std::is_void_v<T>) {
+        co_await task;
+        *result = std::monostate{};
+    } else {
+        *result = co_await task;
+    }
 }
 
 // Helper for variadic when_all wrapper creation
 template <typename... Tasks, size_t... Is, typename ResultTuple>
 auto create_wrappers(std::tuple<Tasks...>& tasks_tuple,
-                     std::shared_ptr<WhenAllState> state,
                      ResultTuple& results,
                      std::index_sequence<Is...>) {
     return std::make_tuple(
         when_all_wrapper(
             std::move(std::get<Is>(tasks_tuple)),
-            state,
             &std::get<Is>(results))...);
 }
 
@@ -132,12 +177,11 @@ Task<std::tuple<detail::when_all_result_t<typename Tasks::value_type>...>> when_
 
     auto wrappers = detail::create_wrappers(
         tasks_tuple,
-        state,
         results,
         std::make_index_sequence<sizeof...(Tasks)>{});
 
     // Start all wrappers
-    std::apply([](auto&... w) { (w.resume(), ...); }, wrappers);
+    std::apply([&state](auto&... w) { (w.start(state), ...); }, wrappers);
 
     // Await completion
     co_await detail::WhenAllAwaiter{state};
@@ -166,19 +210,18 @@ Task<std::vector<detail::when_all_result_t<T>>> when_all(std::vector<Task<T>> ta
     size_t count = tasks.size();
     auto state = std::make_shared<detail::WhenAllState>(count);
     std::vector<ResultType> results(count);
-    std::vector<Task<void>> wrappers;
+    std::vector<detail::WhenAllTask> wrappers;
     wrappers.reserve(count);
 
     for (size_t i = 0; i < count; ++i) {
         wrappers.push_back(detail::when_all_wrapper(
             std::move(tasks[i]),
-            state,
             &results[i]));
     }
 
     // Start all
     for (auto& w : wrappers) {
-        w.resume();
+        w.start(state);
     }
 
     co_await detail::WhenAllAwaiter{state};

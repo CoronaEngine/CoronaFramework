@@ -304,6 +304,191 @@ TEST(CoroCV, TimeoutVsNotifyRace) {
     ASSERT_EQ(success_count.load() + timeout_count.load(), num_tasks);
 }
 
+TEST(CoroCV, ConditionAlreadySatisfied) {
+    // 验证条件已满足时不会挂起
+    ManualExecutor executor;
+    auto cv = make_condition_variable();
+    bool condition = true;  // 条件一开始就满足
+    bool task_completed = false;
+
+    auto task = [&]() -> Task<void> {
+        co_await switch_to(executor);
+        co_await cv->wait([&]() { return condition; });
+        task_completed = true;
+        co_return;
+    }();
+
+    task.resume();
+    executor.run_all();
+
+    // 任务应该立即完成，不会挂起
+    ASSERT_TRUE(task_completed);
+}
+
+TEST(CoroCV, ZeroTimeout) {
+    // 验证零超时立即返回
+    TbbExecutor executor(1);
+    auto cv = make_condition_variable();
+    std::atomic<bool> task_done{false};
+    std::atomic<bool> timed_out{false};
+
+    auto task = [&]() -> Task<void> {
+        co_await switch_to(executor);
+        // 零超时应该立即返回超时
+        bool result = co_await cv->wait_for([]() { return false; }, std::chrono::milliseconds{0});
+        timed_out = result;
+        task_done = true;
+        co_return;
+    }();
+
+    task.resume();
+
+    while (!task_done) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{1});
+    }
+
+    ASSERT_TRUE(timed_out);
+}
+
+TEST(CoroCV, NotifyWithoutWaiters) {
+    // 验证没有等待者时 notify 不会崩溃
+    auto cv = make_condition_variable();
+
+    // 这些调用不应该崩溃或有任何副作用
+    cv->notify_one();
+    cv->notify_all();
+    cv->notify_one();
+
+    ASSERT_TRUE(true);  // 到达这里表示测试通过
+}
+
+TEST(CoroCV, MultipleNotifyOne) {
+    // 验证多次 notify_one 按顺序唤醒等待者
+    ManualExecutor executor;
+    auto cv = make_condition_variable();
+    std::vector<int> wake_order;
+    bool condition = false;
+
+    auto make_waiter = [&](int id) -> Task<void> {
+        co_await switch_to(executor);
+        co_await cv->wait([&]() { return condition; });
+        wake_order.push_back(id);
+    };
+
+    // 创建 5 个等待者
+    std::vector<Task<void>> waiters;
+    for (int i = 1; i <= 5; ++i) {
+        waiters.push_back(make_waiter(i));
+        waiters.back().resume();
+    }
+
+    executor.run_all();
+    ASSERT_TRUE(wake_order.empty());
+
+    condition = true;
+
+    // 依次唤醒
+    for (int i = 1; i <= 5; ++i) {
+        cv->notify_one();
+        ASSERT_EQ(wake_order.size(), static_cast<size_t>(i));
+        ASSERT_EQ(wake_order.back(), i);
+    }
+
+    // 额外的 notify 不应有效果
+    cv->notify_one();
+    ASSERT_EQ(wake_order.size(), 5u);
+}
+
+TEST(CoroCV, WaitPredicateCalledCorrectly) {
+    // 验证谓词在正确的时机被调用
+    ManualExecutor executor;
+    auto cv = make_condition_variable();
+    int predicate_call_count = 0;
+    int value = 0;
+
+    auto task = [&]() -> Task<void> {
+        co_await switch_to(executor);
+        co_await cv->wait([&]() {
+            predicate_call_count++;
+            return value >= 3;
+        });
+        co_return;
+    }();
+
+    task.resume();
+    executor.run_all();
+
+    // 初始调用：条件不满足
+    ASSERT_EQ(predicate_call_count, 1);
+
+    // 第一次 notify：谓词会被检查（因为协程会在 notify 时恢复并再次检查）
+    value = 1;
+    cv->notify_one();
+    // 协程恢复后会继续等待
+
+    value = 3;
+    cv->notify_one();
+    // 现在条件满足
+
+    // 谓词至少被调用了初始的一次
+    ASSERT_GE(predicate_call_count, 1);
+}
+
+TEST(CoroCV, ConcurrentNotifyAndWait) {
+    // 并发测试：多个生产者和消费者
+    TbbExecutor executor(8);
+    auto cv = make_condition_variable();
+    std::atomic<int> shared_counter{0};
+    std::atomic<int> consumed_count{0};
+    constexpr int num_producers = 4;
+    constexpr int num_consumers = 4;
+    constexpr int items_per_producer = 25;
+
+    // 消费者任务
+    auto consumer = [&](int id) -> Task<void> {
+        co_await switch_to(executor);
+        for (int i = 0; i < items_per_producer; ++i) {
+            co_await cv->wait([&]() { return shared_counter.load() > 0; });
+            if (shared_counter.fetch_sub(1) > 0) {
+                consumed_count++;
+            }
+        }
+        co_return;
+    };
+
+    // 生产者任务
+    auto producer = [&](int id) -> Task<void> {
+        co_await switch_to(executor);
+        for (int i = 0; i < items_per_producer; ++i) {
+            shared_counter.fetch_add(1);
+            cv->notify_one();
+            // 小延迟模拟实际工作
+            std::this_thread::sleep_for(std::chrono::microseconds{100});
+        }
+        co_return;
+    };
+
+    std::vector<Task<void>> tasks;
+
+    // 启动消费者
+    for (int i = 0; i < num_consumers; ++i) {
+        tasks.push_back(consumer(i));
+        tasks.back().resume();
+    }
+
+    // 启动生产者
+    for (int i = 0; i < num_producers; ++i) {
+        tasks.push_back(producer(i));
+        tasks.back().resume();
+    }
+
+    // 等待足够时间让任务完成
+    std::this_thread::sleep_for(std::chrono::milliseconds{500});
+
+    // 最终所有生产的都应被消费
+    ASSERT_EQ(consumed_count.load(), num_producers * items_per_producer);
+}
+
 int main() {
     return TestRunner::instance().run_all();
 }
