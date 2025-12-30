@@ -434,36 +434,8 @@ TEST(CoroWhenAll, ExceptionInLastTask) {
 // 性能相关测试
 // ========================================
 
-TEST(CoroWhenAll, ParallelSpeedup) {
-    // 验证并行执行确实比串行快 (通过并发计数验证)
-    TbbExecutor executor(4);
-    constexpr int num_tasks = 8;
-    constexpr int sleep_ms = 50;
-    std::atomic<int> active_count{0};
-    std::atomic<int> max_active{0};
-
-    auto make_task = [&](int ms) -> Task<void> {
-        co_await switch_to(executor);
-        int current = active_count.fetch_add(1) + 1;
-        int m = max_active.load();
-        while(current > m && !max_active.compare_exchange_weak(m, current));
-        
-        std::this_thread::sleep_for(std::chrono::milliseconds{ms});
-        active_count.fetch_sub(1);
-        co_return;
-    };
-
-    std::vector<Task<void>> tasks;
-    for (int i = 0; i < num_tasks; ++i) {
-        tasks.push_back(make_task(sleep_ms));
-    }
-
-    auto all_task = when_all(std::move(tasks));
-    all_task.get();
-
-    // 至少有两个任务同时运行
-    ASSERT_GT(max_active.load(), 1);
-}
+// 注意：ParallelSpeedup 测试已删除，因为它与 ConcurrentExecution 重复
+// ConcurrentExecution 已经验证了并行执行和并发计数
 
 TEST(CoroWhenAll, AllVoidTasks) {
     // 全部是 void 任务
