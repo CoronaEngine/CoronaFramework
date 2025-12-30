@@ -10,9 +10,11 @@
 4. [Awaitable 等待器](#4-awaitable-等待器)
 5. [执行器 (Executor)](#5-执行器-executor)
 6. [调度器 (Scheduler)](#6-调度器-scheduler)
-7. [异常处理](#7-异常处理)
-8. [高级用法](#8-高级用法)
-9. [最佳实践](#9-最佳实践)
+7. [并行组合 (when_all)](#7-并行组合-when_all)
+8. [同步原语](#8-同步原语)
+9. [异常处理](#9-异常处理)
+10. [高级用法](#10-高级用法)
+11. [最佳实践](#11-最佳实践)
 
 ---
 
@@ -673,11 +675,228 @@ Runner::run(work());
 
 ---
 
-## 7. 异常处理
+## 7. 并行组合 (when_all)
+
+`when_all` 函数允许并行等待多个任务完成，是实现并发的推荐方式。
+
+### 7.1 基本用法
+
+```cpp
+Task<int> fetch_data_a() {
+    co_await suspend_for(std::chrono::milliseconds{100});
+    co_return 10;
+}
+
+Task<int> fetch_data_b() {
+    co_await suspend_for(std::chrono::milliseconds{150});
+    co_return 20;
+}
+
+Task<void> parallel_example() {
+    // 并行等待两个任务
+    auto [a, b] = co_await when_all(fetch_data_a(), fetch_data_b());
+    std::cout << "结果: " << a << ", " << b << std::endl;  // 输出: 结果: 10, 20
+}
+```
+
+### 7.2 不同类型的任务
+
+`when_all` 支持不同返回类型的任务：
+
+```cpp
+Task<int> get_number() {
+    co_return 42;
+}
+
+Task<std::string> get_string() {
+    co_return "hello";
+}
+
+Task<void> do_work() {
+    std::cout << "工作中..." << std::endl;
+    co_return;
+}
+
+Task<void> mixed_parallel() {
+    // void 任务对应 std::monostate
+    auto [num, str, _] = co_await when_all(
+        get_number(),
+        get_string(),
+        do_work()
+    );
+    std::cout << "数字: " << num << ", 字符串: " << str << std::endl;
+}
+```
+
+### 7.3 同类型任务向量
+
+对于同类型的多个任务，可以使用 `std::vector`：
+
+```cpp
+Task<int> fetch_item(int id) {
+    co_await suspend_for(std::chrono::milliseconds{50});
+    co_return id * 10;
+}
+
+Task<void> batch_fetch() {
+    std::vector<Task<int>> tasks;
+    for (int i = 0; i < 5; ++i) {
+        tasks.push_back(fetch_item(i));
+    }
+    
+    // 并行执行所有任务
+    auto results = co_await when_all(std::move(tasks));
+    
+    for (int val : results) {
+        std::cout << val << " ";  // 输出: 0 10 20 30 40
+    }
+}
+```
+
+### 7.4 异常处理
+
+如果任何任务抛出异常，`when_all` 会捕获第一个异常并重新抛出：
+
+```cpp
+Task<int> may_fail(bool fail) {
+    if (fail) {
+        throw std::runtime_error("任务失败");
+    }
+    co_return 42;
+}
+
+Task<void> handle_errors() {
+    try {
+        auto [a, b] = co_await when_all(
+            may_fail(false),
+            may_fail(true)  // 这个会抛出异常
+        );
+    } catch (const std::exception& e) {
+        std::cout << "捕获异常: " << e.what() << std::endl;
+    }
+}
+```
+
+---
+
+## 8. 同步原语
+
+协程模块提供了协程友好的同步原语，避免阻塞线程。
+
+### 8.1 AsyncMutex - 异步互斥锁
+
+`AsyncMutex` 是协程友好的互斥锁，当锁被占用时挂起协程而不是阻塞线程：
+
+```cpp
+AsyncMutex mutex;
+int shared_counter = 0;
+
+Task<void> increment_counter() {
+    // 获取锁
+    co_await mutex.lock();
+    
+    // 临界区
+    ++shared_counter;
+    
+    // 释放锁
+    mutex.unlock();
+}
+```
+
+#### 使用 ScopedLock 自动释放
+
+```cpp
+Task<void> safe_increment() {
+    // 自动获取和释放锁
+    auto guard = co_await mutex.lock_scoped();
+    
+    // 临界区 - guard 析构时自动释放锁
+    ++shared_counter;
+    co_await some_async_operation();
+    ++shared_counter;
+}
+```
+
+#### 并发安全示例
+
+```cpp
+Task<void> concurrent_updates() {
+    AsyncMutex mutex;
+    int counter = 0;
+    
+    // 启动多个并发任务
+    std::vector<Task<void>> tasks;
+    for (int i = 0; i < 10; ++i) {
+        tasks.push_back([&]() -> Task<void> {
+            for (int j = 0; j < 100; ++j) {
+                auto guard = co_await mutex.lock_scoped();
+                ++counter;
+            }
+        }());
+    }
+    
+    co_await when_all(std::move(tasks));
+    std::cout << "最终计数: " << counter << std::endl;  // 输出: 1000
+}
+```
+
+### 8.2 AsyncScope - 异步作用域
+
+`AsyncScope` 用于管理一组并发任务的生命周期，支持 "fire-and-forget" 模式：
+
+```cpp
+Task<void> worker_task(int id) {
+    std::cout << "Worker " << id << " 开始" << std::endl;
+    co_await suspend_for(std::chrono::milliseconds{100});
+    std::cout << "Worker " << id << " 完成" << std::endl;
+}
+
+Task<void> scope_example() {
+    AsyncScope scope;
+    
+    // 启动多个任务（fire-and-forget）
+    scope.spawn(worker_task(1));
+    scope.spawn(worker_task(2));
+    scope.spawn(worker_task(3));
+    
+    std::cout << "所有任务已启动" << std::endl;
+    
+    // 等待所有任务完成
+    co_await scope.join();
+    
+    std::cout << "所有任务已完成" << std::endl;
+}
+```
+
+#### 结构化并发
+
+`AsyncScope` 确保作用域销毁前所有任务都已结束：
+
+```cpp
+Task<void> structured_concurrency() {
+    {
+        AsyncScope scope;
+        
+        // 启动后台任务
+        scope.spawn(background_work());
+        scope.spawn(background_work());
+        
+        // 执行其他操作
+        co_await main_work();
+        
+        // scope 销毁前会等待所有任务完成
+        co_await scope.join();
+    }  // 所有任务保证已完成
+}
+```
+
+---
+
+## 9. 异常处理
 
 协程模块支持完整的异常传播机制。
 
-### 7.1 Task 中的异常
+### 9.1 Task 中的异常
 
 ```cpp
 Task<int> may_fail(bool should_fail) {
@@ -711,7 +930,7 @@ int main() {
 }
 ```
 
-### 7.2 Generator 中的异常
+### 9.2 Generator 中的异常
 
 ```cpp
 Generator<int> gen_with_error() {
@@ -733,7 +952,7 @@ int main() {
 }
 ```
 
-### 7.3 错误处理模式
+### 9.3 错误处理模式
 
 ```cpp
 // 使用 std::optional 进行安全操作
@@ -759,9 +978,9 @@ Task<std::string> operation_with_message() {
 
 ---
 
-## 8. 高级用法
+## 10. 高级用法
 
-### 8.1 嵌套协程
+### 10.1 嵌套协程
 
 ```cpp
 Task<int> inner_task() {
@@ -785,7 +1004,9 @@ Task<int> outer_task() {
 int result = Runner::run(outer_task());  // result = 4
 ```
 
-### 8.2 并行任务
+### 10.2 并行任务
+
+推荐使用 `when_all` 实现并行任务（参见第 7 节）。以下是传统线程方式的示例：
 
 ```cpp
 Task<int> fetch_from_source_a() {
@@ -798,8 +1019,17 @@ Task<int> fetch_from_source_b() {
     co_return 20;
 }
 
-// 简单的并行执行 (使用线程)
-Task<int> parallel_fetch() {
+// 推荐方式：使用 when_all
+Task<int> parallel_fetch_recommended() {
+    auto [a, b] = co_await when_all(
+        fetch_from_source_a(),
+        fetch_from_source_b()
+    );
+    co_return a + b;
+}
+
+// 传统方式：使用线程（不推荐）
+Task<int> parallel_fetch_legacy() {
     std::atomic<int> result_a{0};
     std::atomic<int> result_b{0};
     
@@ -818,7 +1048,7 @@ Task<int> parallel_fetch() {
 }
 ```
 
-### 8.3 生成器与任务结合
+### 10.3 生成器与任务结合
 
 ```cpp
 Generator<int> data_source() {
@@ -837,7 +1067,7 @@ Task<int> process_all() {
 }
 ```
 
-### 8.4 定时任务
+### 10.4 定时任务
 
 ```cpp
 Task<void> periodic_task(int count, std::chrono::milliseconds interval) {
@@ -855,7 +1085,7 @@ int main() {
 }
 ```
 
-### 8.5 超时控制
+### 10.5 超时控制
 
 ```cpp
 Task<bool> with_timeout() {
@@ -878,9 +1108,9 @@ Task<bool> with_timeout() {
 
 ---
 
-## 9. 最佳实践
+## 11. 最佳实践
 
-### 9.1 生命周期管理
+### 11.1 生命周期管理
 
 ```cpp
 // ✅ 正确: Task 在作用域内保持有效
@@ -902,7 +1132,7 @@ Task<int> transfer_ownership() {
 }
 ```
 
-### 9.2 避免阻塞
+### 11.2 避免阻塞
 
 ```cpp
 // ❌ 避免在协程中阻塞
@@ -918,7 +1148,7 @@ Task<void> non_blocking_good() {
 }
 ```
 
-### 9.3 资源清理
+### 11.3 资源清理
 
 ```cpp
 Task<void> resource_example() {
@@ -936,7 +1166,7 @@ Task<void> resource_example() {
 }
 ```
 
-### 9.4 异常安全
+### 11.4 异常安全
 
 ```cpp
 Task<void> exception_safe() {
@@ -951,7 +1181,7 @@ Task<void> exception_safe() {
 }
 ```
 
-### 9.5 性能考虑
+### 11.5 性能考虑
 
 ```cpp
 // ✅ 使用移动语义避免拷贝
@@ -1049,6 +1279,29 @@ Generator<int> lazy_data() {
 |------|------|
 | `run(Task<T>)` | 阻塞运行任务，返回结果 |
 | `run(Task<void>)` | 阻塞运行 void 任务 |
+| `spawn(Task<T>&&)` | 启动任务到线程池（不等待完成） |
+
+### when_all
+
+| 函数 | 说明 |
+|------|------|
+| `when_all(Tasks...)` | 并行等待多个不同类型任务 |
+| `when_all(vector<Task<T>>)` | 并行等待同类型任务向量 |
+
+### AsyncMutex
+
+| 方法 | 说明 |
+|------|------|
+| `lock()` | 获取锁（返回 Awaitable） |
+| `lock_scoped()` | 获取锁并返回 ScopedLock |
+| `unlock()` | 释放锁 |
+
+### AsyncScope
+
+| 方法 | 说明 |
+|------|------|
+| `spawn(Task<T>&&)` | 启动任务（fire-and-forget） |
+| `join()` | 等待所有任务完成（返回 Awaitable） |
 
 ---
 

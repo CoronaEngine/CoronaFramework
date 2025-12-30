@@ -10,9 +10,11 @@
 4. [Awaitable 等待器](#4-awaitable-等待器)
 5. [执行器 (Executor)](#5-执行器-executor)
 6. [调度器 (Scheduler)](#6-调度器-scheduler)
-7. [异常处理](#7-异常处理)
-8. [高级用法](#8-高级用法)
-9. [最佳实践](#9-最佳实践)
+7. [Parallel Composition (when_all)](#7-parallel-composition-when_all)
+8. [Synchronization Primitives](#8-synchronization-primitives)
+9. [异常处理](#9-异常处理)
+10. [高级用法](#10-高级用法)
+11. [最佳实践](#11-最佳实践)
 
 ---
 
@@ -673,11 +675,228 @@ Runner::run(work());
 
 ---
 
-## 7. 异常处理
+## 7. Parallel Composition (when_all)
+
+The `when_all` function allows parallel waiting for multiple tasks to complete. This is the recommended way to implement concurrency.
+
+### 7.1 Basic Usage
+
+```cpp
+Task<int> fetch_data_a() {
+    co_await suspend_for(std::chrono::milliseconds{100});
+    co_return 10;
+}
+
+Task<int> fetch_data_b() {
+    co_await suspend_for(std::chrono::milliseconds{150});
+    co_return 20;
+}
+
+Task<void> parallel_example() {
+    // Wait for both tasks in parallel
+    auto [a, b] = co_await when_all(fetch_data_a(), fetch_data_b());
+    std::cout << "Results: " << a << ", " << b << std::endl;  // Output: Results: 10, 20
+}
+```
+
+### 7.2 Tasks with Different Types
+
+`when_all` supports tasks with different return types:
+
+```cpp
+Task<int> get_number() {
+    co_return 42;
+}
+
+Task<std::string> get_string() {
+    co_return "hello";
+}
+
+Task<void> do_work() {
+    std::cout << "Working..." << std::endl;
+    co_return;
+}
+
+Task<void> mixed_parallel() {
+    // void tasks correspond to std::monostate
+    auto [num, str, _] = co_await when_all(
+        get_number(),
+        get_string(),
+        do_work()
+    );
+    std::cout << "Number: " << num << ", String: " << str << std::endl;
+}
+```
+
+### 7.3 Vector of Same-Type Tasks
+
+For multiple tasks of the same type, you can use `std::vector`:
+
+```cpp
+Task<int> fetch_item(int id) {
+    co_await suspend_for(std::chrono::milliseconds{50});
+    co_return id * 10;
+}
+
+Task<void> batch_fetch() {
+    std::vector<Task<int>> tasks;
+    for (int i = 0; i < 5; ++i) {
+        tasks.push_back(fetch_item(i));
+    }
+    
+    // Execute all tasks in parallel
+    auto results = co_await when_all(std::move(tasks));
+    
+    for (int val : results) {
+        std::cout << val << " ";  // Output: 0 10 20 30 40
+    }
+}
+```
+
+### 7.4 Exception Handling
+
+If any task throws an exception, `when_all` catches the first exception and rethrows it:
+
+```cpp
+Task<int> may_fail(bool fail) {
+    if (fail) {
+        throw std::runtime_error("Task failed");
+    }
+    co_return 42;
+}
+
+Task<void> handle_errors() {
+    try {
+        auto [a, b] = co_await when_all(
+            may_fail(false),
+            may_fail(true)  // This will throw
+        );
+    } catch (const std::exception& e) {
+        std::cout << "Caught exception: " << e.what() << std::endl;
+    }
+}
+```
+
+---
+
+## 8. Synchronization Primitives
+
+The coroutine module provides coroutine-friendly synchronization primitives that avoid blocking threads.
+
+### 8.1 AsyncMutex - Async Mutex
+
+`AsyncMutex` is a coroutine-friendly mutex that suspends coroutines instead of blocking threads when the lock is held:
+
+```cpp
+AsyncMutex mutex;
+int shared_counter = 0;
+
+Task<void> increment_counter() {
+    // Acquire the lock
+    co_await mutex.lock();
+    
+    // Critical section
+    ++shared_counter;
+    
+    // Release the lock
+    mutex.unlock();
+}
+```
+
+#### Using ScopedLock for Automatic Release
+
+```cpp
+Task<void> safe_increment() {
+    // Automatically acquire and release lock
+    auto guard = co_await mutex.lock_scoped();
+    
+    // Critical section - guard releases lock on destruction
+    ++shared_counter;
+    co_await some_async_operation();
+    ++shared_counter;
+}
+```
+
+#### Concurrency-Safe Example
+
+```cpp
+Task<void> concurrent_updates() {
+    AsyncMutex mutex;
+    int counter = 0;
+    
+    // Launch multiple concurrent tasks
+    std::vector<Task<void>> tasks;
+    for (int i = 0; i < 10; ++i) {
+        tasks.push_back([&]() -> Task<void> {
+            for (int j = 0; j < 100; ++j) {
+                auto guard = co_await mutex.lock_scoped();
+                ++counter;
+            }
+        }());
+    }
+    
+    co_await when_all(std::move(tasks));
+    std::cout << "Final count: " << counter << std::endl;  // Output: 1000
+}
+```
+
+### 8.2 AsyncScope - Async Scope
+
+`AsyncScope` manages the lifecycle of a group of concurrent tasks, supporting "fire-and-forget" pattern:
+
+```cpp
+Task<void> worker_task(int id) {
+    std::cout << "Worker " << id << " started" << std::endl;
+    co_await suspend_for(std::chrono::milliseconds{100});
+    std::cout << "Worker " << id << " finished" << std::endl;
+}
+
+Task<void> scope_example() {
+    AsyncScope scope;
+    
+    // Spawn multiple tasks (fire-and-forget)
+    scope.spawn(worker_task(1));
+    scope.spawn(worker_task(2));
+    scope.spawn(worker_task(3));
+    
+    std::cout << "All tasks spawned" << std::endl;
+    
+    // Wait for all tasks to complete
+    co_await scope.join();
+    
+    std::cout << "All tasks completed" << std::endl;
+}
+```
+
+#### Structured Concurrency
+
+`AsyncScope` ensures all tasks are finished before the scope is destroyed:
+
+```cpp
+Task<void> structured_concurrency() {
+    {
+        AsyncScope scope;
+        
+        // Spawn background tasks
+        scope.spawn(background_work());
+        scope.spawn(background_work());
+        
+        // Perform other operations
+        co_await main_work();
+        
+        // Wait for all tasks before scope destruction
+        co_await scope.join();
+    }  // All tasks guaranteed to be complete
+}
+```
+
+---
+
+## 9. 异常处理
 
 协程模块支持完整的异常传播机制。
 
-### 7.1 Task 中的异常
+### 9.1 Task 中的异常
 
 ```cpp
 Task<int> may_fail(bool should_fail) {
@@ -711,7 +930,7 @@ int main() {
 }
 ```
 
-### 7.2 Generator 中的异常
+### 9.2 Generator 中的异常
 
 ```cpp
 Generator<int> gen_with_error() {
@@ -733,7 +952,7 @@ int main() {
 }
 ```
 
-### 7.3 错误处理模式
+### 9.3 错误处理模式
 
 ```cpp
 // 使用 std::expected 风格 (C++23) 或类似模式
@@ -759,9 +978,9 @@ Task<std::string> operation_with_message() {
 
 ---
 
-## 8. 高级用法
+## 10. 高级用法
 
-### 8.1 嵌套协程
+### 10.1 嵌套协程
 
 ```cpp
 Task<int> inner_task() {
@@ -785,7 +1004,9 @@ Task<int> outer_task() {
 int result = Runner::run(outer_task());  // result = 4
 ```
 
-### 8.2 并行任务
+### 10.2 并行任务
+
+Recommend using `when_all` for parallel tasks (see Section 7). Here is a legacy example using threads:
 
 ```cpp
 Task<int> fetch_from_source_a() {
@@ -798,8 +1019,17 @@ Task<int> fetch_from_source_b() {
     co_return 20;
 }
 
-// 简单的并行执行 (使用线程)
-Task<int> parallel_fetch() {
+// Recommended: Use when_all
+Task<int> parallel_fetch_recommended() {
+    auto [a, b] = co_await when_all(
+        fetch_from_source_a(),
+        fetch_from_source_b()
+    );
+    co_return a + b;
+}
+
+// Legacy: Using threads (not recommended)
+Task<int> parallel_fetch_legacy() {
     std::atomic<int> result_a{0};
     std::atomic<int> result_b{0};
     
@@ -818,7 +1048,7 @@ Task<int> parallel_fetch() {
 }
 ```
 
-### 8.3 生成器与任务结合
+### 10.3 生成器与任务结合
 
 ```cpp
 Generator<int> data_source() {
@@ -837,7 +1067,7 @@ Task<int> process_all() {
 }
 ```
 
-### 8.4 定时任务
+### 10.4 定时任务
 
 ```cpp
 Task<void> periodic_task(int count, std::chrono::milliseconds interval) {
@@ -855,7 +1085,7 @@ int main() {
 }
 ```
 
-### 8.5 超时控制
+### 10.5 超时控制
 
 ```cpp
 Task<bool> with_timeout() {
@@ -878,9 +1108,9 @@ Task<bool> with_timeout() {
 
 ---
 
-## 9. 最佳实践
+## 11. 最佳实践
 
-### 9.1 生命周期管理
+### 11.1 生命周期管理
 
 ```cpp
 // ✅ 正确: Task 在作用域内保持有效
@@ -902,7 +1132,7 @@ Task<int> transfer_ownership() {
 }
 ```
 
-### 9.2 避免阻塞
+### 11.2 避免阻塞
 
 ```cpp
 // ❌ 避免在协程中阻塞
@@ -918,7 +1148,7 @@ Task<void> non_blocking_good() {
 }
 ```
 
-### 9.3 资源清理
+### 11.3 资源清理
 
 ```cpp
 Task<void> resource_example() {
@@ -936,7 +1166,7 @@ Task<void> resource_example() {
 }
 ```
 
-### 9.4 异常安全
+### 11.4 异常安全
 
 ```cpp
 Task<void> exception_safe() {
@@ -951,7 +1181,7 @@ Task<void> exception_safe() {
 }
 ```
 
-### 9.5 性能考虑
+### 11.5 性能考虑
 
 ```cpp
 // ✅ 使用移动语义避免拷贝
@@ -1045,10 +1275,33 @@ Generator<int> lazy_data() {
 
 ### Runner
 
-| 方法 | 说明 |
-|------|------|
-| `run(Task<T>)` | 阻塞运行任务，返回结果 |
-| `run(Task<void>)` | 阻塞运行 void 任务 |
+| Method | Description |
+|--------|-------------|
+| `run(Task<T>)` | Block and run task, return result |
+| `run(Task<void>)` | Block and run void task |
+| `spawn(Task<T>&&)` | Spawn task to thread pool (don't wait) |
+
+### when_all
+
+| Function | Description |
+|----------|-------------|
+| `when_all(Tasks...)` | Wait for multiple tasks of different types in parallel |
+| `when_all(vector<Task<T>>)` | Wait for vector of same-type tasks in parallel |
+
+### AsyncMutex
+
+| Method | Description |
+|--------|-------------|
+| `lock()` | Acquire lock (returns Awaitable) |
+| `lock_scoped()` | Acquire lock and return ScopedLock |
+| `unlock()` | Release lock |
+
+### AsyncScope
+
+| Method | Description |
+|--------|-------------|
+| `spawn(Task<T>&&)` | Spawn task (fire-and-forget) |
+| `join()` | Wait for all tasks to complete (returns Awaitable) |
 
 ---
 
