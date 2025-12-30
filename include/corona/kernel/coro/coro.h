@@ -47,8 +47,8 @@
 #include "coro_concepts.h"
 
 // 核心类型
-#include "task.h"
 #include "generator.h"
+#include "task.h"
 
 // Awaitable 工具
 #include "awaitables.h"
@@ -59,6 +59,9 @@
 
 // 调度器
 #include "scheduler.h"
+
+// 并行组合
+#include "when_all.h"
 
 namespace Corona::Kernel::Coro {
 
