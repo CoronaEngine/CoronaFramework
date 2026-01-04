@@ -1,9 +1,9 @@
 #pragma once
 
+#include <chrono>
 #include <concepts>
 #include <coroutine>
 #include <functional>
-#include <chrono>
 #include <type_traits>
 
 namespace Corona::Kernel::Coro {
@@ -107,7 +107,7 @@ concept Executor = requires(E e, std::function<void()> f) {
  * 检查类型是否可以无参调用并返回 bool
  */
 template <typename F>
-concept BoolPredicate = std::invocable<F> && 
+concept BoolPredicate = std::invocable<F> &&
                         std::convertible_to<std::invoke_result_t<F>, bool>;
 
 /**

@@ -5,8 +5,8 @@
 #include <exception>
 #include <optional>
 #include <stdexcept>
-#include <utility>
 #include <type_traits>
+#include <utility>
 
 namespace Corona::Kernel::Coro {
 

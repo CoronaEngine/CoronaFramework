@@ -3,6 +3,8 @@
  * @brief Generator<T> 单元测试
  */
 
+#include <corona/kernel/coro/coro.h>
+
 #include <iostream>
 #include <memory>
 #include <numeric>
@@ -10,7 +12,6 @@
 #include <vector>
 
 #include "../test_framework.h"
-#include <corona/kernel/coro/coro.h>
 
 using namespace Corona::Kernel::Coro;
 using namespace CoronaTest;
@@ -318,7 +319,7 @@ TEST(CoroGenerator, FilterComposition) {
 
 Generator<int> map_square(Generator<int> gen) {
     for (int n : gen) {
-        co_yield n * n;
+        co_yield n* n;
     }
 }
 
@@ -396,14 +397,14 @@ Generator<int> large_sequence(int count) {
 TEST(CoroGenerator, LargeSequence) {
     constexpr int count = 10000;
     auto gen = large_sequence(count);
-    
+
     int sum = 0;
     int item_count = 0;
     for (int n : gen) {
         sum += n;
         item_count++;
     }
-    
+
     ASSERT_EQ(item_count, count);
     // 0 + 1 + 2 + ... + (count-1) = count*(count-1)/2
     ASSERT_EQ(sum, count * (count - 1) / 2);
@@ -411,14 +412,14 @@ TEST(CoroGenerator, LargeSequence) {
 
 TEST(CoroGenerator, PartialConsumption) {
     auto gen = large_sequence(10000);
-    
+
     // 只消费前100个
     int count = 0;
     for (int n : gen) {
         (void)n;
         if (++count >= 100) break;
     }
-    
+
     ASSERT_EQ(count, 100);
 }
 
@@ -622,11 +623,11 @@ Generator<int> single_element_gen() {
 
 TEST(CoroGenerator, SingleElement) {
     auto gen = single_element_gen();
-    
+
     auto val = gen.next();
     ASSERT_TRUE(val.has_value());
     ASSERT_EQ(*val, 42);
-    
+
     val = gen.next();
     ASSERT_FALSE(val.has_value());
     ASSERT_TRUE(gen.done());
@@ -692,7 +693,7 @@ TEST(CoroGenerator, IteratorEquality) {
     auto gen = range(0, 3);
     auto it = gen.begin();
     auto end = gen.end();
-    
+
     ASSERT_NE(it, end);
     ++it;
     ASSERT_NE(it, end);
@@ -708,7 +709,7 @@ TEST(CoroGenerator, IteratorEquality) {
 
 TEST(CoroGenerator, BeginCalledOnce) {
     auto gen = range(0, 5);
-    
+
     // 第一次调用 begin
     auto it1 = gen.begin();
     ASSERT_EQ(*it1, 0);
@@ -722,17 +723,17 @@ TEST(CoroGenerator, BeginCalledOnce) {
 
 TEST(CoroGenerator, ValidityAfterConsumption) {
     auto gen = range(0, 3);
-    
+
     ASSERT_TRUE(static_cast<bool>(gen));
     ASSERT_FALSE(gen.done());
-    
+
     // 完全消费
     for (int n : gen) {
         (void)n;
     }
-    
+
     ASSERT_TRUE(static_cast<bool>(gen));  // 仍然有效
-    ASSERT_TRUE(gen.done());               // 但已完成
+    ASSERT_TRUE(gen.done());              // 但已完成
 }
 
 // ========================================

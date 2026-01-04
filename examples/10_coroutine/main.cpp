@@ -51,12 +51,12 @@ Generator<int> fibonacci(int count) {
     std::cout << "[Gen] Started on thread " << std::this_thread::get_id() << std::endl;
     int a = 0, b = 1;
     for (int i = 0; i < count; ++i) {
-        co_yield a; // 挂起，将控制权还给调用者 (主线程)
-        
+        co_yield a;  // 挂起，将控制权还给调用者 (主线程)
+
         // 当调用者再次请求下一个值时，从这里恢复
         // 因为是调用者直接恢复的，所以还在原来的线程
         std::cout << "[Gen] Resumed on thread " << std::this_thread::get_id() << std::endl;
-        
+
         int next = a + b;
         a = b;
         b = next;
@@ -354,15 +354,15 @@ Task<std::string> wait_with_timeout_demo() {
 
 Task<void> scheduler_mode_demo() {
     std::cout << "[Demo] Comparing suspend modes..." << std::endl;
-    
+
     // 1. 阻塞模式 (suspend_for_blocking)
     // 直接阻塞当前线程，不涉及调度器。
     // 适用于：非协程环境、测试、或必须阻塞当前线程的场景。
     auto start = std::chrono::steady_clock::now();
     co_await suspend_for_blocking(std::chrono::milliseconds{50});
     auto end = std::chrono::steady_clock::now();
-    std::cout << "[Blocking] Slept for " 
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() 
+    std::cout << "[Blocking] Slept for "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << "ms on thread " << std::this_thread::get_id() << std::endl;
 
     // 2. 调度器模式 (suspend_for)
@@ -372,8 +372,8 @@ Task<void> scheduler_mode_demo() {
     start = std::chrono::steady_clock::now();
     co_await suspend_for(std::chrono::milliseconds{50});
     end = std::chrono::steady_clock::now();
-    std::cout << "[Scheduler] Slept for " 
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() 
+    std::cout << "[Scheduler] Slept for "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << "ms, resumed on thread " << std::this_thread::get_id() << std::endl;
 }
 

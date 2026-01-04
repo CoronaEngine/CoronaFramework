@@ -345,23 +345,23 @@ class Storage {
         std::unique_lock lock(list_mutex_);
         // Double check
         for (auto& buffer : buffers_) {
-             if (!buffer.is_full.load(std::memory_order_acquire)) {
-                 if (ObjectId id = allocate_from_buffer(buffer)) {
-                     return id;
-                 }
-             }
+            if (!buffer.is_full.load(std::memory_order_acquire)) {
+                if (ObjectId id = allocate_from_buffer(buffer)) {
+                    return id;
+                }
+            }
         }
 
         buffers_.emplace_back();
         buffer_count_.fetch_add(1, std::memory_order_relaxed);
-        CFW_LOG_DEBUG("Storage<{},{},{}> expanded: new capacity = {} * {} = {}",
+        CFW_LOG_DEBUG("Storage<{},{},{}> expanded: new capacity = BufferCount:{} * BufferCapacity:{} = {}",
                       typeid(T).name(),
                       BufferCapacity,
                       InitialBuffers,
                       buffer_count_.load(std::memory_order_relaxed),
                       BufferCapacity,
                       capacity());
-        
+
         return allocate_from_buffer(buffers_.back());
     }
 
@@ -385,7 +385,7 @@ class Storage {
 
         if (parent_buffer) {
             std::size_t index = (id - reinterpret_cast<std::uint64_t>(&(parent_buffer->buffer[0]))) / sizeof(T);
-            
+
             {
                 std::unique_lock slot_lock(parent_buffer->mutexes[index]);
                 if (parent_buffer->occupied[index].load(std::memory_order_acquire) == false) {
@@ -396,7 +396,7 @@ class Storage {
             }
 
             occupied_count_.fetch_sub(1, std::memory_order_relaxed);
-            
+
             {
                 std::unique_lock alloc_lock(parent_buffer->alloc_mutex);
                 parent_buffer->free_indices.push_back(index);
@@ -416,12 +416,18 @@ class Storage {
                             break;
                         }
                     }
-                    
+
                     while (empty_cnt > 2 && buffers_.size() > InitialBuffers) {
                         buffers_.pop_back();
                         buffer_count_.fetch_sub(1, std::memory_order_relaxed);
                         empty_cnt--;
-                        CFW_LOG_DEBUG("Storage shrunk: capacity = {}", capacity());
+                        CFW_LOG_DEBUG("Storage<{},{},{}> shrunk: new capacity = BufferCount:{} * BufferCapacity:{} = {}",
+                                      typeid(T).name(),
+                                      BufferCapacity,
+                                      InitialBuffers,
+                                      buffer_count_.load(std::memory_order_relaxed),
+                                      BufferCapacity,
+                                      capacity());
                     }
                 }
             }
@@ -528,6 +534,8 @@ class Storage {
 
     /**
      * @brief 线程安全的迭代器 (Input Iterator)
+     *
+     * @note 使用基于索引的方式而非迭代器，以避免并发扩容/缩容导致的迭代器失效问题
      */
     class Iterator {
        public:
@@ -540,14 +548,7 @@ class Storage {
         Iterator() = default;
         Iterator(Storage* storage, bool is_end) : storage_(storage), is_end_(is_end) {
             if (!is_end_ && storage_) {
-                std::shared_lock lock(storage_->list_mutex_);
-                buffer_it_ = storage_->buffers_.begin();
-                if (buffer_it_ == storage_->buffers_.end()) {
-                    is_end_ = true;
-                } else {
-                    lock.unlock();
-                    advance();
-                }
+                advance();
             }
         }
 
@@ -567,50 +568,78 @@ class Storage {
         bool operator==(const Iterator& other) const { return is_end_ == other.is_end_; }
 
        private:
+        /**
+         * @brief 根据索引获取对应的 buffer 指针
+         * @param index buffer 索引
+         * @return buffer 指针，如果索引超出范围则返回 nullptr
+         * @note 必须在持有 list_mutex_ 共享锁时调用
+         */
+        StaticBuffer<T, BufferCapacity>* get_buffer_at(std::size_t index) {
+            auto it = storage_->buffers_.begin();
+            for (std::size_t i = 0; i < index && it != storage_->buffers_.end(); ++i, ++it) {
+            }
+            return (it != storage_->buffers_.end()) ? &(*it) : nullptr;
+        }
+
         void advance() {
             while (true) {
                 if (!retry_mode_) {
+                    // 检查是否需要移动到下一个 buffer
                     if (slot_index_ >= BufferCapacity) {
-                        std::shared_lock lock(storage_->list_mutex_);
-                        ++buffer_it_;
+                        ++buffer_index_;
                         slot_index_ = 0;
-                        if (buffer_it_ == storage_->buffers_.end()) {
+                    }
+
+                    // 获取当前 buffer
+                    StaticBuffer<T, BufferCapacity>* buffer = nullptr;
+                    {
+                        std::shared_lock lock(storage_->list_mutex_);
+                        buffer = get_buffer_at(buffer_index_);
+                        if (!buffer) {
+                            // 已经遍历完所有 buffer，进入重试模式
                             retry_mode_ = true;
                             continue;
                         }
                     }
 
-                    auto& buffer = *buffer_it_;
-                    if (buffer.occupied[slot_index_].load(std::memory_order_acquire)) {
-                        std::unique_lock slot_lock(buffer.mutexes[slot_index_], std::try_to_lock);
+                    // 检查当前槽位是否被占用
+                    if (buffer->occupied[slot_index_].load(std::memory_order_acquire)) {
+                        std::unique_lock slot_lock(buffer->mutexes[slot_index_], std::try_to_lock);
                         if (slot_lock.owns_lock()) {
-                            handle_ = WriteHandle(&buffer.buffer[slot_index_], std::move(slot_lock));
-                            ++slot_index_;
-                            return;
+                            // 再次检查占用状态（double-check）
+                            if (buffer->occupied[slot_index_].load(std::memory_order_acquire)) {
+                                handle_ = WriteHandle(&buffer->buffer[slot_index_], std::move(slot_lock));
+                                ++slot_index_;
+                                return;
+                            }
                         } else {
-                            skipped_items_.push({&buffer, slot_index_});
+                            // 锁定失败，加入跳过队列稍后重试
+                            skipped_items_.push({buffer, slot_index_});
                         }
                     }
                     ++slot_index_;
                 } else {
+                    // 重试模式：处理之前跳过的槽位
                     if (skipped_items_.empty()) {
                         is_end_ = true;
                         return;
                     }
                     auto [buffer, index] = skipped_items_.front();
                     skipped_items_.pop();
-                    // Note: 阻塞重试
+
+                    // 阻塞等待获取锁
                     std::unique_lock slot_lock(buffer->mutexes[index]);
                     if (buffer->occupied[index].load(std::memory_order_acquire)) {
                         handle_ = WriteHandle(&buffer->buffer[index], std::move(slot_lock));
                         return;
                     }
+                    // 如果槽位已被释放，继续处理下一个跳过的项
                 }
             }
         }
 
         Storage* storage_ = nullptr;
-        typename std::list<StaticBuffer<T, BufferCapacity>>::iterator buffer_it_;
+        std::size_t buffer_index_ = 0;  ///< 当前 buffer 索引（替代迭代器）
         std::size_t slot_index_ = 0;
         std::queue<std::pair<StaticBuffer<T, BufferCapacity>*, std::size_t>> skipped_items_;
         WriteHandle handle_;
@@ -620,6 +649,8 @@ class Storage {
 
     /**
      * @brief 线程安全的只读迭代器 (Input Iterator)
+     *
+     * @note 使用基于索引的方式而非迭代器，以避免并发扩容/缩容导致的迭代器失效问题
      */
     class ConstIterator {
        public:
@@ -632,14 +663,7 @@ class Storage {
         ConstIterator() = default;
         ConstIterator(const Storage* storage, bool is_end) : storage_(storage), is_end_(is_end) {
             if (!is_end_ && storage_) {
-                std::shared_lock lock(storage_->list_mutex_);
-                buffer_it_ = storage_->buffers_.begin();
-                if (buffer_it_ == storage_->buffers_.end()) {
-                    is_end_ = true;
-                } else {
-                    lock.unlock();
-                    advance();
-                }
+                advance();
             }
         }
 
@@ -659,32 +683,58 @@ class Storage {
         bool operator==(const ConstIterator& other) const { return is_end_ == other.is_end_; }
 
        private:
+        /**
+         * @brief 根据索引获取对应的 buffer 指针
+         * @param index buffer 索引
+         * @return buffer 指针，如果索引超出范围则返回 nullptr
+         * @note 必须在持有 list_mutex_ 共享锁时调用
+         */
+        const StaticBuffer<T, BufferCapacity>* get_buffer_at(std::size_t index) const {
+            auto it = storage_->buffers_.begin();
+            for (std::size_t i = 0; i < index && it != storage_->buffers_.end(); ++i, ++it) {
+            }
+            return (it != storage_->buffers_.end()) ? &(*it) : nullptr;
+        }
+
         void advance() {
             while (true) {
                 if (!retry_mode_) {
+                    // 检查是否需要移动到下一个 buffer
                     if (slot_index_ >= BufferCapacity) {
-                        std::shared_lock lock(storage_->list_mutex_);
-                        ++buffer_it_;
+                        ++buffer_index_;
                         slot_index_ = 0;
-                        if (buffer_it_ == storage_->buffers_.end()) {
+                    }
+
+                    // 获取当前 buffer
+                    const StaticBuffer<T, BufferCapacity>* buffer = nullptr;
+                    {
+                        std::shared_lock lock(storage_->list_mutex_);
+                        buffer = get_buffer_at(buffer_index_);
+                        if (!buffer) {
+                            // 已经遍历完所有 buffer，进入重试模式
                             retry_mode_ = true;
                             continue;
                         }
                     }
 
-                    auto& buffer = *buffer_it_;
-                    if (buffer.occupied[slot_index_].load(std::memory_order_acquire)) {
-                        std::shared_lock slot_lock(buffer.mutexes[slot_index_], std::try_to_lock);
+                    // 检查当前槽位是否被占用
+                    if (buffer->occupied[slot_index_].load(std::memory_order_acquire)) {
+                        std::shared_lock slot_lock(buffer->mutexes[slot_index_], std::try_to_lock);
                         if (slot_lock.owns_lock()) {
-                            handle_ = ReadHandle(&buffer.buffer[slot_index_], std::move(slot_lock));
-                            slot_index_++;
-                            return;
+                            // 再次检查占用状态（double-check）
+                            if (buffer->occupied[slot_index_].load(std::memory_order_acquire)) {
+                                handle_ = ReadHandle(&buffer->buffer[slot_index_], std::move(slot_lock));
+                                ++slot_index_;
+                                return;
+                            }
                         } else {
-                            skipped_items_.push({&buffer, slot_index_});
+                            // 锁定失败，加入跳过队列稍后重试
+                            skipped_items_.push({buffer, slot_index_});
                         }
                     }
-                    slot_index_++;
+                    ++slot_index_;
                 } else {
+                    // 重试模式：处理之前跳过的槽位
                     if (skipped_items_.empty()) {
                         is_end_ = true;
                         return;
@@ -692,20 +742,22 @@ class Storage {
                     auto [buffer, index] = skipped_items_.front();
                     skipped_items_.pop();
 
+                    // 阻塞等待获取锁
                     std::shared_lock slot_lock(buffer->mutexes[index]);
                     if (buffer->occupied[index].load(std::memory_order_acquire)) {
                         handle_ = ReadHandle(&buffer->buffer[index], std::move(slot_lock));
                         return;
                     }
+                    // 如果槽位已被释放，继续处理下一个跳过的项
                 }
             }
         }
 
         const Storage* storage_ = nullptr;
-        typename std::list<StaticBuffer<T, BufferCapacity>>::const_iterator buffer_it_;
+        std::size_t buffer_index_ = 0;  ///< 当前 buffer 索引（替代迭代器）
         std::size_t slot_index_ = 0;
-        std::queue<std::pair<const StaticBuffer<T, BufferCapacity>*, std::size_t>> skipped_items_;
-        ReadHandle handle_;
+        mutable std::queue<std::pair<const StaticBuffer<T, BufferCapacity>*, std::size_t>> skipped_items_;
+        mutable ReadHandle handle_;
         bool is_end_ = true;
         bool retry_mode_ = false;
     };
@@ -751,7 +803,7 @@ class Storage {
     ObjectId allocate_from_buffer(StaticBuffer<T, BufferCapacity>& buffer) {
         std::unique_lock alloc_lock(buffer.alloc_mutex);
         if (buffer.free_indices.empty()) return 0;
-        
+
         std::size_t idx = buffer.free_indices.back();
         buffer.free_indices.pop_back();
         if (buffer.free_indices.empty()) {
@@ -762,7 +814,7 @@ class Storage {
 
         T* ptr = &buffer.buffer[idx];
         ObjectId id = reinterpret_cast<ObjectId>(ptr);
-        
+
         std::unique_lock slot_lock(buffer.mutexes[idx]);
         try {
             *ptr = T{};
@@ -780,7 +832,7 @@ class Storage {
 
    private:
     std::atomic<std::size_t> occupied_count_{0};             ///< 已占用槽位计数
-    std::shared_mutex list_mutex_;                           ///< 保护 buffers_ 列表的锁
+    mutable std::shared_mutex list_mutex_;                   ///< 保护 buffers_ 列表的锁（mutable 允许 const 方法加锁）
     std::list<StaticBuffer<T, BufferCapacity>> buffers_;     ///< 底层 buffer 列表
     std::atomic<std::size_t> buffer_count_{InitialBuffers};  ///< 当前 buffer 数量
 };
