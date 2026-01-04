@@ -45,10 +45,7 @@ TEST(StorageTests, BasicAllocateAndAccess) {
     storage.deallocate(handle);
 
     // 验证释放后无法访问
-    {
-        auto accessor = storage.acquire_read(handle);
-        ASSERT_FALSE(accessor.valid());
-    }
+    ASSERT_THROW(storage.acquire_read(handle), std::runtime_error);
 }
 
 TEST(StorageTests, MultipleAllocations) {
@@ -434,27 +431,13 @@ TEST(StorageTests, InvalidHandleAccess) {
     Storage<int, 8> storage;
 
     // 测试无效句柄（0）
-    {
-        auto accessor = storage.acquire_read(0);
-        ASSERT_FALSE(accessor.valid());
-    }
-
-    {
-        auto accessor = storage.acquire_write(0);
-        ASSERT_FALSE(accessor.valid());
-    }
+    ASSERT_THROW(storage.acquire_read(0), std::runtime_error);
+    ASSERT_THROW(storage.acquire_write(0), std::runtime_error);
 
     // 测试未分配的句柄
     Storage<int, 8>::ObjectId fake_handle = 0x123456;
-    {
-        auto accessor = storage.acquire_read(fake_handle);
-        ASSERT_FALSE(accessor.valid());
-    }
-
-    {
-        auto accessor = storage.acquire_write(fake_handle);
-        ASSERT_FALSE(accessor.valid());
-    }
+    ASSERT_THROW(storage.acquire_read(fake_handle), std::runtime_error);
+    ASSERT_THROW(storage.acquire_write(fake_handle), std::runtime_error);
 }
 
 TEST(StorageTests, CapacityBoundaryTest) {

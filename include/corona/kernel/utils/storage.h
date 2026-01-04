@@ -1,7 +1,5 @@
 #pragma once
 
-#include <oneapi/tbb/concurrent_queue.h>
-
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -12,6 +10,7 @@
 #include <shared_mutex>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 #include "corona/kernel/core/i_logger.h"
 #include "corona/pal/cfw_platform.h"
@@ -57,8 +56,10 @@ struct StaticBuffer {
     static_assert((Capacity & (Capacity - 1)) == 0, "Capacity must be a power of two");
 
     StaticBuffer() {
+        free_indices.reserve(Capacity);
         for (std::size_t i = 0; i < Capacity; ++i) {
             occupied[i].store(false, std::memory_order_relaxed);
+            free_indices.push_back(i);
         }
     }
 
@@ -72,6 +73,11 @@ struct StaticBuffer {
     std::array<T, Capacity> buffer{};                                 ///< 数据存储数组
     std::array<std::atomic<bool>, Capacity> occupied{};               ///< 槽位占用标志，原子操作确保可见性
     mutable std::array<std::shared_timed_mutex, Capacity> mutexes{};  ///< 每个槽位的独立共享锁（支持超时）
+
+    std::vector<std::size_t> free_indices;
+    std::mutex alloc_mutex;
+    std::atomic<std::size_t> active_count{0};
+    std::atomic<bool> is_full{false};
 };
 
 /**
@@ -209,9 +215,6 @@ class Storage {
     Storage() {
         for (std::size_t i = 0; i < InitialBuffers; ++i) {
             buffers_.emplace_back();
-            for (std::size_t j = 0; j < BufferCapacity; ++j) {
-                free_slots_.push(reinterpret_cast<ObjectId>(&(buffers_.back().buffer[j])));
-            }
         }
     }
 
@@ -326,53 +329,40 @@ class Storage {
      */
     [[nodiscard]]
     ObjectId allocate() {
-        ObjectId id{};
-        if (!free_slots_.try_pop(id)) {
-            // 扩容
-            std::unique_lock lock(list_mutex_);
-            // 双重检查，防止竞争条件
-            if (!free_slots_.try_pop(id)) {
-                buffers_.emplace_back();
-                for (std::size_t j = 0; j < BufferCapacity; ++j) {
-                    free_slots_.push(reinterpret_cast<ObjectId>(&(buffers_.back().buffer[j])));
-                }
-                buffer_count_.fetch_add(1, std::memory_order_relaxed);
-                CFW_LOG_DEBUG("Storage<{},{},{}> expanded: new capacity = {} * {} = {}",
-                              typeid(T).name(),
-                              BufferCapacity,
-                              InitialBuffers,
-                              buffer_count_.load(std::memory_order_relaxed),
-                              BufferCapacity,
-                              capacity());
-                // 再次尝试分配
-                if (!free_slots_.try_pop(id)) {
-                    CFW_LOG_ERROR("Storage<{},{},{}> allocation failed after expansion",
-                                  typeid(T).name(),
-                                  BufferCapacity,
-                                  InitialBuffers);
-                    return 0;  // 分配失败
+        // 1. Try to allocate from existing buffers (prefer head)
+        {
+            std::shared_lock lock(list_mutex_);
+            for (auto& buffer : buffers_) {
+                if (!buffer.is_full.load(std::memory_order_acquire)) {
+                    if (ObjectId id = allocate_from_buffer(buffer)) {
+                        return id;
+                    }
                 }
             }
         }
 
-        // 初始化槽位
-        T* ptr = reinterpret_cast<T*>(id);
-        auto [buffer_idx, parent_buffer] = get_parent_buffer(id);
-
-        if (parent_buffer) {
-            std::size_t slot_index = (id - reinterpret_cast<ObjectId>(&(parent_buffer->buffer[0]))) / sizeof(T);
-            std::unique_lock slot_lock(parent_buffer->mutexes[slot_index]);
-            try {
-                *ptr = T{};
-            } catch (...) {
-                free_slots_.push(id);
-                throw;
-            }
-            parent_buffer->occupied[slot_index].store(true, std::memory_order_release);
-            occupied_count_.fetch_add(1, std::memory_order_relaxed);
-            return id;
+        // 2. All buffers full, expand
+        std::unique_lock lock(list_mutex_);
+        // Double check
+        for (auto& buffer : buffers_) {
+             if (!buffer.is_full.load(std::memory_order_acquire)) {
+                 if (ObjectId id = allocate_from_buffer(buffer)) {
+                     return id;
+                 }
+             }
         }
-        throw std::runtime_error("Parent buffer not found during allocation");
+
+        buffers_.emplace_back();
+        buffer_count_.fetch_add(1, std::memory_order_relaxed);
+        CFW_LOG_DEBUG("Storage<{},{},{}> expanded: new capacity = {} * {} = {}",
+                      typeid(T).name(),
+                      BufferCapacity,
+                      InitialBuffers,
+                      buffer_count_.load(std::memory_order_relaxed),
+                      BufferCapacity,
+                      capacity());
+        
+        return allocate_from_buffer(buffers_.back());
     }
 
     /**
@@ -395,14 +385,46 @@ class Storage {
 
         if (parent_buffer) {
             std::size_t index = (id - reinterpret_cast<std::uint64_t>(&(parent_buffer->buffer[0]))) / sizeof(T);
-            std::unique_lock slot_lock(parent_buffer->mutexes[index]);
-            if (parent_buffer->occupied[index].load(std::memory_order_acquire) == false) {
-                CFW_LOG_CRITICAL("Double free detected for object ID: {}", id);
-                throw std::runtime_error("Double free detected");
+            
+            {
+                std::unique_lock slot_lock(parent_buffer->mutexes[index]);
+                if (parent_buffer->occupied[index].load(std::memory_order_acquire) == false) {
+                    CFW_LOG_CRITICAL("Double free detected for object ID: {}", id);
+                    throw std::runtime_error("Double free detected");
+                }
+                parent_buffer->occupied[index].store(false, std::memory_order_release);
             }
-            parent_buffer->occupied[index].store(false, std::memory_order_release);
+
             occupied_count_.fetch_sub(1, std::memory_order_relaxed);
-            free_slots_.push(id);
+            
+            {
+                std::unique_lock alloc_lock(parent_buffer->alloc_mutex);
+                parent_buffer->free_indices.push_back(index);
+                parent_buffer->is_full.store(false, std::memory_order_release);
+            }
+
+            std::size_t active = parent_buffer->active_count.fetch_sub(1, std::memory_order_relaxed) - 1;
+
+            if (active == 0) {
+                std::unique_lock list_lock(list_mutex_, std::try_to_lock);
+                if (list_lock.owns_lock()) {
+                    int empty_cnt = 0;
+                    for (auto it = buffers_.rbegin(); it != buffers_.rend(); ++it) {
+                        if (it->active_count.load() == 0) {
+                            empty_cnt++;
+                        } else {
+                            break;
+                        }
+                    }
+                    
+                    while (empty_cnt > 2 && buffers_.size() > InitialBuffers) {
+                        buffers_.pop_back();
+                        buffer_count_.fetch_sub(1, std::memory_order_relaxed);
+                        empty_cnt--;
+                        CFW_LOG_DEBUG("Storage shrunk: capacity = {}", capacity());
+                    }
+                }
+            }
             return;
         }
         throw std::runtime_error("Parent buffer not found during deallocation");
@@ -725,10 +747,40 @@ class Storage {
         return {-1, nullptr};
     }
 
+    [[nodiscard]]
+    ObjectId allocate_from_buffer(StaticBuffer<T, BufferCapacity>& buffer) {
+        std::unique_lock alloc_lock(buffer.alloc_mutex);
+        if (buffer.free_indices.empty()) return 0;
+        
+        std::size_t idx = buffer.free_indices.back();
+        buffer.free_indices.pop_back();
+        if (buffer.free_indices.empty()) {
+            buffer.is_full.store(true, std::memory_order_release);
+        }
+        buffer.active_count.fetch_add(1, std::memory_order_relaxed);
+        alloc_lock.unlock();
+
+        T* ptr = &buffer.buffer[idx];
+        ObjectId id = reinterpret_cast<ObjectId>(ptr);
+        
+        std::unique_lock slot_lock(buffer.mutexes[idx]);
+        try {
+            *ptr = T{};
+        } catch (...) {
+            std::unique_lock rb_lock(buffer.alloc_mutex);
+            buffer.free_indices.push_back(idx);
+            buffer.is_full.store(false, std::memory_order_release);
+            buffer.active_count.fetch_sub(1, std::memory_order_relaxed);
+            throw;
+        }
+        buffer.occupied[idx].store(true, std::memory_order_release);
+        occupied_count_.fetch_add(1, std::memory_order_relaxed);
+        return id;
+    }
+
    private:
     std::atomic<std::size_t> occupied_count_{0};             ///< 已占用槽位计数
     std::shared_mutex list_mutex_;                           ///< 保护 buffers_ 列表的锁
-    tbb::concurrent_queue<ObjectId> free_slots_;             ///< 空闲槽位的无锁队列
     std::list<StaticBuffer<T, BufferCapacity>> buffers_;     ///< 底层 buffer 列表
     std::atomic<std::size_t> buffer_count_{InitialBuffers};  ///< 当前 buffer 数量
 };

@@ -151,4 +151,19 @@ class TestRegistrar {
         }                                                                                  \
     } while (0)
 
+#define ASSERT_THROW(statement, expected_exception)                                                   \
+    do {                                                                                              \
+        bool caught = false;                                                                          \
+        try {                                                                                         \
+            statement;                                                                                \
+        } catch (const expected_exception&) {                                                         \
+            caught = true;                                                                            \
+        } catch (...) {                                                                               \
+            throw std::runtime_error("Expected " #expected_exception " but got different exception"); \
+        }                                                                                             \
+        if (!caught) {                                                                                \
+            throw std::runtime_error("Expected " #expected_exception " but none was thrown");         \
+        }                                                                                             \
+    } while (0)
+
 }  // namespace CoronaTest
