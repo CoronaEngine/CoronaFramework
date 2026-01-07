@@ -1,5 +1,6 @@
 #include <chrono>
 #include <ctime>
+#include <filesystem>
 #include <iomanip>
 #include <mutex>
 #include <sstream>
@@ -71,8 +72,15 @@ void initialize_impl() {
     // 创建控制台 Sink
     auto console_sink = quill::Frontend::create_or_get_sink<quill::ConsoleSink>("corona_console");
 
+    // 确保 logs 目录存在
+    namespace fs = std::filesystem;
+    fs::path log_dir = "logs";
+    if (!fs::exists(log_dir)) {
+        fs::create_directories(log_dir);
+    }
+
     // 创建文件 Sink (带时间戳的文件名)
-    std::string log_filename = generate_log_filename();
+    std::string log_filename = (log_dir / generate_log_filename()).string();
     auto file_sink = quill::Frontend::create_or_get_sink<quill::FileSink>(
         log_filename,
         []() {
