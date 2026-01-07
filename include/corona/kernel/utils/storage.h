@@ -142,13 +142,13 @@ class Storage {
         ReadHandle(const T* ptr, std::shared_lock<std::shared_timed_mutex>&& lock)
             : ptr_(ptr), lock_(std::move(lock)) {
 #if CFW_ENABLE_LOCK_LOGGING
-            CFW_LOG_DEBUG("ReadHandle acquire lock for ptr addr: {}", reinterpret_cast<std::uintptr_t>(ptr_));
+            CFW_LOG_TRACE("ReadHandle acquire lock for ptr addr: {}", reinterpret_cast<std::uintptr_t>(ptr_));
 #endif
         }
 
         ~ReadHandle() {
 #if CFW_ENABLE_LOCK_LOGGING
-            CFW_LOG_DEBUG("ReadHandle release lock for ptr addr: {}", reinterpret_cast<std::uintptr_t>(ptr_));
+            CFW_LOG_TRACE("ReadHandle release lock for ptr addr: {}", reinterpret_cast<std::uintptr_t>(ptr_));
 #endif
         }
 
@@ -178,13 +178,13 @@ class Storage {
         WriteHandle(T* ptr, std::unique_lock<std::shared_timed_mutex>&& lock)
             : ptr_(ptr), lock_(std::move(lock)) {
 #if CFW_ENABLE_LOCK_LOGGING
-            CFW_LOG_DEBUG("WriteHandle acquire lock for ptr addr: {}", reinterpret_cast<std::uintptr_t>(ptr_));
+            CFW_LOG_TRACE("WriteHandle acquire lock for ptr addr: {}", reinterpret_cast<std::uintptr_t>(ptr_));
 #endif
         }
 
         ~WriteHandle() {
 #if CFW_ENABLE_LOCK_LOGGING
-            CFW_LOG_DEBUG("WriteHandle release lock for ptr addr: {}", reinterpret_cast<std::uintptr_t>(ptr_));
+            CFW_LOG_TRACE("WriteHandle release lock for ptr addr: {}", reinterpret_cast<std::uintptr_t>(ptr_));
 #endif
         }
 
@@ -354,7 +354,7 @@ class Storage {
 
         buffers_.emplace_back();
         buffer_count_.fetch_add(1, std::memory_order_relaxed);
-        CFW_LOG_DEBUG("Storage<{},{},{}> expanded: new capacity = BufferCount:{} * BufferCapacity:{} = {}",
+        CFW_LOG_TRACE("Storage<{},{},{}> expanded: new capacity = BufferCount:{} * BufferCapacity:{} = {}",
                       typeid(T).name(),
                       BufferCapacity,
                       InitialBuffers,
@@ -421,7 +421,7 @@ class Storage {
                         buffers_.pop_back();
                         buffer_count_.fetch_sub(1, std::memory_order_relaxed);
                         empty_cnt--;
-                        CFW_LOG_DEBUG("Storage<{},{},{}> shrunk: new capacity = BufferCount:{} * BufferCapacity:{} = {}",
+                        CFW_LOG_TRACE("Storage<{},{},{}> shrunk: new capacity = BufferCount:{} * BufferCapacity:{} = {}",
                                       typeid(T).name(),
                                       BufferCapacity,
                                       InitialBuffers,
