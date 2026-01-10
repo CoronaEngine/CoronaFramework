@@ -262,6 +262,30 @@ class Storage {
     }
 
     /**
+     * @brief 检查指定 ID 是否存在于对象池中
+     *
+     * @param id 对象 ID（由 allocate() 返回）
+     * @return 若 ID 有效且对应槽位已占用则返回 true，否则返回 false
+     *
+     * @note 检查流程：
+     *       1. 通过 get_parent_buffer() 查找槽位所属的 StaticBuffer
+     *       2. 若找不到对应的 buffer，返回 false
+     *       3. 计算槽位在 buffer 内的索引，检查 occupied 原子标志
+     *
+     * @note 线程安全，使用原子操作检查槽位占用状态
+     * @note 返回值为瞬时快照，多线程环境下可能在返回后立即变化
+     */
+    CFW_FORCE_INLINE
+    bool contains(ObjectId id) const {
+        auto [_, parent_buffer] = const_cast<Storage*>(this)->get_parent_buffer(id);
+        if (!parent_buffer) {
+            return false;
+        }
+        std::size_t index = (id - reinterpret_cast<ObjectId>(&(parent_buffer->buffer[0]))) / sizeof(T);
+        return parent_buffer->occupied[index].load(std::memory_order_acquire);
+    }
+
+    /**
      * @brief 根据对象 ID 计算全局唯一的序列号
      *
      * @param id 对象 ID（内存地址）
@@ -491,6 +515,63 @@ class Storage {
     }
 
     /**
+     * @brief 尝试获取只读访问句柄（不抛异常版本）
+     *
+     * @param id 对象 ID
+     * @return ReadHandle RAII 句柄，若 ID 无效或未占用则 valid() 为 false
+     *
+     * @note 与 acquire_read() 不同，此方法在 ID 无效或未占用时不抛异常，
+     *       而是返回无效的 Handle（valid() 返回 false）
+     *
+     * @note 使用示例：
+     * @code
+     * if (auto handle = storage.try_acquire_read(id)) {
+     *     // ID 存在，可以安全访问
+     *     std::cout << handle->name << std::endl;
+     * }
+     * // 无需先调用 contains() 检查
+     * @endcode
+     *
+     * @note 线程安全，使用共享锁允许多个读者并发访问
+     * @note 使用超时锁检测死锁，超时时间由 CFW_LOCK_TIMEOUT_MS 宏定义
+     * @throws std::runtime_error 若锁获取超时（可能存在死锁）
+     */
+    [[nodiscard]]
+    ReadHandle try_acquire_read(ObjectId id) {
+        T* ptr = reinterpret_cast<T*>(id);
+        auto [_, parent_buffer] = get_parent_buffer(id);
+
+        if (!parent_buffer) {
+            return ReadHandle();  // 返回无效句柄
+        }
+
+        std::size_t index = (id - reinterpret_cast<ObjectId>(&(parent_buffer->buffer[0]))) / sizeof(T);
+        std::shared_lock<std::shared_timed_mutex> slot_lock(parent_buffer->mutexes[index], std::defer_lock);
+
+#if CFW_ENABLE_LOCK_TIMEOUT
+        // 使用超时锁检测死锁
+        constexpr auto timeout = std::chrono::milliseconds(CFW_LOCK_TIMEOUT_MS);
+        if (!slot_lock.try_lock_for(timeout)) {
+            std::string stack_info = capture_stack_trace(2, 15);
+            std::string error_msg =
+                "Lock timeout during try_acquire_read for object " + std::to_string(id) +
+                " after " + std::to_string(CFW_LOCK_TIMEOUT_MS) + "ms - possible deadlock detected\n" +
+                stack_info;
+            CFW_LOG_CRITICAL("{}", error_msg);
+            CFW_LOG_FLUSH();
+            throw std::runtime_error(error_msg);
+        }
+#else
+        slot_lock.lock();
+#endif
+
+        if (parent_buffer->occupied[index].load(std::memory_order_acquire)) {
+            return ReadHandle(ptr, std::move(slot_lock));
+        }
+        return ReadHandle();  // 槽位未占用，返回无效句柄
+    }
+
+    /**
      * @brief 获取读写访问句柄
      *
      * @param id 对象 ID
@@ -539,6 +620,63 @@ class Storage {
         }
         CFW_LOG_FLUSH();
         throw std::runtime_error("Parent buffer not found during write acquisition");
+    }
+
+    /**
+     * @brief 尝试获取读写访问句柄（不抛异常版本）
+     *
+     * @param id 对象 ID
+     * @return WriteHandle RAII 句柄，若 ID 无效或未占用则 valid() 为 false
+     *
+     * @note 与 acquire_write() 不同，此方法在 ID 无效或未占用时不抛异常，
+     *       而是返回无效的 Handle（valid() 返回 false）
+     *
+     * @note 使用示例：
+     * @code
+     * if (auto handle = storage.try_acquire_write(id)) {
+     *     // ID 存在，可以安全修改
+     *     handle->x += 10.0f;
+     * }
+     * // 无需先调用 contains() 检查
+     * @endcode
+     *
+     * @note 线程安全，使用独占锁确保独占写入
+     * @note 使用超时锁检测死锁，超时时间由 CFW_LOCK_TIMEOUT_MS 宏定义
+     * @throws std::runtime_error 若锁获取超时（可能存在死锁）
+     */
+    [[nodiscard]]
+    WriteHandle try_acquire_write(ObjectId id) {
+        T* ptr = reinterpret_cast<T*>(id);
+        auto [_, parent_buffer] = get_parent_buffer(id);
+
+        if (!parent_buffer) {
+            return WriteHandle();  // 返回无效句柄
+        }
+
+        std::size_t index = (id - reinterpret_cast<ObjectId>(&(parent_buffer->buffer[0]))) / sizeof(T);
+        std::unique_lock<std::shared_timed_mutex> slot_lock(parent_buffer->mutexes[index], std::defer_lock);
+
+#if CFW_ENABLE_LOCK_TIMEOUT
+        // 使用超时锁检测死锁
+        constexpr auto timeout = std::chrono::milliseconds(CFW_LOCK_TIMEOUT_MS);
+        if (!slot_lock.try_lock_for(timeout)) {
+            std::string stack_info = capture_stack_trace(2, 15);
+            std::string error_msg =
+                "Lock timeout during try_acquire_write for object " + std::to_string(id) +
+                " after " + std::to_string(CFW_LOCK_TIMEOUT_MS) + "ms - possible deadlock detected\n" +
+                stack_info;
+            CFW_LOG_CRITICAL("{}", error_msg);
+            CFW_LOG_FLUSH();
+            throw std::runtime_error(error_msg);
+        }
+#else
+        slot_lock.lock();
+#endif
+
+        if (parent_buffer->occupied[index].load(std::memory_order_acquire)) {
+            return WriteHandle(ptr, std::move(slot_lock));
+        }
+        return WriteHandle();  // 槽位未占用，返回无效句柄
     }
 
     /**
