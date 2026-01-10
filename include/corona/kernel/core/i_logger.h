@@ -82,6 +82,8 @@ class CoronaLogger {
 // 包含 Quill 宏定义
 #include "quill/LogMacros.h"
 
+#define CFW_LOG_FLUSH() ::Corona::Kernel::CoronaLogger::flush()
+
 /**
  * @brief 跟踪级别日志（最详细）
  * 示例: CFW_LOG_TRACE("Processing item {}/{}", current, total);

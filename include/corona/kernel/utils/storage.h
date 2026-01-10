@@ -277,6 +277,7 @@ class Storage {
             return index * BufferCapacity +
                    (id - reinterpret_cast<std::uintptr_t>(&(buffer->buffer[0]))) / sizeof(T);
         }
+        CFW_LOG_FLUSH();
         throw std::runtime_error("Parent buffer not found during seq_id calculation");
         return -1;
     }
@@ -390,6 +391,7 @@ class Storage {
                 std::unique_lock slot_lock(parent_buffer->mutexes[index]);
                 if (parent_buffer->occupied[index].load(std::memory_order_acquire) == false) {
                     CFW_LOG_CRITICAL("Double free detected for object ID: {}", id);
+                    CFW_LOG_FLUSH();
                     throw std::runtime_error("Double free detected");
                 }
                 parent_buffer->occupied[index].store(false, std::memory_order_release);
@@ -433,6 +435,7 @@ class Storage {
             }
             return;
         }
+        CFW_LOG_FLUSH();
         throw std::runtime_error("Parent buffer not found during deallocation");
     }
 
@@ -470,6 +473,7 @@ class Storage {
                     " after " + std::to_string(CFW_LOCK_TIMEOUT_MS) + "ms - possible deadlock detected\n" +
                     stack_info;
                 CFW_LOG_CRITICAL("{}", error_msg);
+                CFW_LOG_FLUSH();
                 throw std::runtime_error(error_msg);
             }
 #else
@@ -479,8 +483,10 @@ class Storage {
             if (parent_buffer->occupied[index].load(std::memory_order_acquire)) {
                 return ReadHandle(ptr, std::move(slot_lock));
             }
+            CFW_LOG_FLUSH();
             throw std::runtime_error("Attempt to acquire read handle for unoccupied object ID: " + std::to_string(id));
         }
+        CFW_LOG_FLUSH();
         throw std::runtime_error("Parent buffer not found during read acquisition");
     }
 
@@ -518,6 +524,7 @@ class Storage {
                     " after " + std::to_string(CFW_LOCK_TIMEOUT_MS) + "ms - possible deadlock detected\n" +
                     stack_info;
                 CFW_LOG_CRITICAL("{}", error_msg);
+                CFW_LOG_FLUSH();
                 throw std::runtime_error(error_msg);
             }
 #else
@@ -527,8 +534,10 @@ class Storage {
             if (parent_buffer->occupied[index].load(std::memory_order_acquire)) {
                 return WriteHandle(ptr, std::move(slot_lock));
             }
+            CFW_LOG_FLUSH();
             throw std::runtime_error("Attempt to acquire write handle for unoccupied object ID: " + std::to_string(id));
         }
+        CFW_LOG_FLUSH();
         throw std::runtime_error("Parent buffer not found during write acquisition");
     }
 
@@ -823,6 +832,7 @@ class Storage {
             buffer.free_indices.push_back(idx);
             buffer.is_full.store(false, std::memory_order_release);
             buffer.active_count.fetch_sub(1, std::memory_order_relaxed);
+            CFW_LOG_FLUSH();
             throw;
         }
         buffer.occupied[idx].store(true, std::memory_order_release);

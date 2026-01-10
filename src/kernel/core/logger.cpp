@@ -1,4 +1,5 @@
 #include <chrono>
+#include <csignal>
 #include <ctime>
 #include <filesystem>
 #include <iomanip>
@@ -9,6 +10,7 @@
 #include "quill/Backend.h"
 #include "quill/Frontend.h"
 #include "quill/LogMacros.h"
+#include "quill/backend/SignalHandler.h"
 #include "quill/core/PatternFormatterOptions.h"
 #include "quill/sinks/ConsoleSink.h"
 #include "quill/sinks/FileSink.h"
@@ -60,8 +62,18 @@ std::string generate_log_filename() {
 }
 
 void initialize_impl() {
-    // 启动 Quill Backend
-    quill::Backend::start();
+    // 配置信号处理器选项，确保程序崩溃时日志能够刷新
+    quill::SignalHandlerOptions signal_handler_options;
+    signal_handler_options.catchable_signals = {SIGTERM, SIGINT, SIGABRT, SIGFPE, SIGILL, SIGSEGV};
+    signal_handler_options.timeout_seconds = 20;  // 信号处理超时时间
+    signal_handler_options.logger_name = "corona_default";  // 使用的 logger 名称
+
+    // 配置后端选项
+    quill::BackendOptions backend_options;
+    backend_options.sleep_duration = std::chrono::microseconds{100};
+
+    // 启动 Quill Backend（带信号处理器）
+    quill::Backend::start<quill::FrontendOptions>(backend_options, signal_handler_options);
 
     // 配置日志格式: [时间戳][线程ID][级别][文件:行号] 消息
     quill::PatternFormatterOptions formatter_options;
