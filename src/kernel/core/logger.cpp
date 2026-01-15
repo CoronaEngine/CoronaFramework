@@ -6,6 +6,10 @@
 #include <mutex>
 #include <sstream>
 
+#ifdef _WIN32
+#include <Windows.h>
+#endif
+
 #include "corona/kernel/core/i_logger.h"
 #include "quill/Backend.h"
 #include "quill/Frontend.h"
@@ -62,6 +66,20 @@ std::string generate_log_filename() {
 }
 
 void initialize_impl() {
+#ifdef _WIN32
+    // 设置控制台代码页为 UTF-8，确保中文路径等能正确显示
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+    // 启用控制台虚拟终端序列以支持 ANSI 颜色
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hOut != INVALID_HANDLE_VALUE) {
+        DWORD dwMode = 0;
+        if (GetConsoleMode(hOut, &dwMode)) {
+            SetConsoleMode(hOut, dwMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+        }
+    }
+#endif
+
     // 配置信号处理器选项，确保程序崩溃时日志能够刷新
     quill::SignalHandlerOptions signal_handler_options;
     signal_handler_options.catchable_signals = {SIGTERM, SIGINT, SIGABRT, SIGFPE, SIGILL, SIGSEGV};
@@ -71,6 +89,9 @@ void initialize_impl() {
     // 配置后端选项
     quill::BackendOptions backend_options;
     backend_options.sleep_duration = std::chrono::microseconds{100};
+    // 禁用非 ASCII 字符转义，以支持 UTF-8 编码的中文路径等
+    // 默认的 check_printable_char 只允许 ASCII 可打印字符，会将中文转为 \xNN
+    backend_options.check_printable_char = {};
 
     // 启动 Quill Backend（带信号处理器）
     quill::Backend::start<quill::FrontendOptions>(backend_options, signal_handler_options);
