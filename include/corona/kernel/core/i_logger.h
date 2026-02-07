@@ -125,3 +125,27 @@ class CoronaLogger {
  * 示例: CFW_LOG_CRITICAL("Critical system failure: {}", reason);
  */
 #define CFW_LOG_CRITICAL(fmt, ...) LOG_CRITICAL(::Corona::Kernel::CoronaLogger::get_logger(), fmt, ##__VA_ARGS__)
+
+// ========================================
+// Python 模块日志宏 - 自动添加 [Python] 前缀
+// ========================================
+
+#define PY_LOG_TRACE(fmt, ...) LOG_TRACE_L3(::Corona::Kernel::CoronaLogger::get_logger(), "[Python] " fmt, ##__VA_ARGS__)
+#define PY_LOG_DEBUG(fmt, ...) LOG_DEBUG(::Corona::Kernel::CoronaLogger::get_logger(), "[Python] " fmt, ##__VA_ARGS__)
+#define PY_LOG_INFO(fmt, ...) LOG_INFO(::Corona::Kernel::CoronaLogger::get_logger(), "[Python] " fmt, ##__VA_ARGS__)
+#define PY_LOG_NOTICE(fmt, ...) LOG_NOTICE(::Corona::Kernel::CoronaLogger::get_logger(), "[Python] " fmt, ##__VA_ARGS__)
+#define PY_LOG_WARNING(fmt, ...) LOG_WARNING(::Corona::Kernel::CoronaLogger::get_logger(), "[Python] " fmt, ##__VA_ARGS__)
+#define PY_LOG_ERROR(fmt, ...) LOG_ERROR(::Corona::Kernel::CoronaLogger::get_logger(), "[Python] " fmt, ##__VA_ARGS__)
+#define PY_LOG_CRITICAL(fmt, ...) LOG_CRITICAL(::Corona::Kernel::CoronaLogger::get_logger(), "[Python] " fmt, ##__VA_ARGS__)
+
+// ========================================
+// Vue 模块日志宏 - 自动添加 [Vue] 前缀
+// ========================================
+
+#define VUE_LOG_TRACE(fmt, ...) LOG_TRACE_L3(::Corona::Kernel::CoronaLogger::get_logger(), "[Vue] " fmt, ##__VA_ARGS__)
+#define VUE_LOG_DEBUG(fmt, ...) LOG_DEBUG(::Corona::Kernel::CoronaLogger::get_logger(), "[Vue] " fmt, ##__VA_ARGS__)
+#define VUE_LOG_INFO(fmt, ...) LOG_INFO(::Corona::Kernel::CoronaLogger::get_logger(), "[Vue] " fmt, ##__VA_ARGS__)
+#define VUE_LOG_NOTICE(fmt, ...) LOG_NOTICE(::Corona::Kernel::CoronaLogger::get_logger(), "[Vue] " fmt, ##__VA_ARGS__)
+#define VUE_LOG_WARNING(fmt, ...) LOG_WARNING(::Corona::Kernel::CoronaLogger::get_logger(), "[Vue] " fmt, ##__VA_ARGS__)
+#define VUE_LOG_ERROR(fmt, ...) LOG_ERROR(::Corona::Kernel::CoronaLogger::get_logger(), "[Vue] " fmt, ##__VA_ARGS__)
+#define VUE_LOG_CRITICAL(fmt, ...) LOG_CRITICAL(::Corona::Kernel::CoronaLogger::get_logger(), "[Vue] " fmt, ##__VA_ARGS__)

@@ -7,6 +7,9 @@
 #include <sstream>
 
 #ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX  // 防止 Windows.h 定义 min/max 宏，避免与 std::numeric_limits 冲突
+#endif
 #include <Windows.h>
 #endif
 
