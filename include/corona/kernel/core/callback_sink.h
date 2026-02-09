@@ -20,6 +20,7 @@ struct LogEntry {
     std::string level;    ///< 日志级别: "TRACE", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"
     std::string message;  ///< 已格式化的完整日志文本
     uint64_t timestamp;   ///< 时间戳（纳秒，epoch）
+    std::string source;   ///< 日志来源: "Engine", "Python", "Vue" 等（对应 logger_name）
 };
 
 /**
@@ -60,6 +61,7 @@ class CallbackSink : public quill::Sink {
         entry.level = std::string(log_level_description);
         entry.message = std::string(log_statement);  // 完整格式化后的日志行
         entry.timestamp = log_timestamp;
+        entry.source = std::string(logger_name);
 
         std::lock_guard<std::mutex> lock(queue_mutex_);
         if (queue_.size() >= kMaxQueueSize) {
