@@ -160,6 +160,8 @@ float SystemBase::delta_time() const {
 }
 
 void SystemBase::thread_loop() {
+    this->on_thread_started();
+
     auto last_time = std::chrono::high_resolution_clock::now();
 
     // 计算帧时间间隔
@@ -216,6 +218,16 @@ void SystemBase::thread_loop() {
             }
         }
     }
+
+    this->on_thread_stopped();
+}
+
+void SystemBase::on_thread_started() {
+    // 默认实现为空，派生类可覆盖
+}
+
+void SystemBase::on_thread_stopped() {
+    // 默认实现为空，派生类可覆盖
 }
 
 // ========================================

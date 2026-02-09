@@ -62,6 +62,14 @@ class RenderSystem : public SystemBase {
         }
     }
 
+    void on_thread_started() override {
+        std::cout << "  [RenderSystem] Render thread started." << std::endl;
+    }
+
+    void on_thread_stopped() override {
+        std::cout << "  [RenderSystem] Render thread stopped." << std::endl;
+    }
+
     void shutdown() override {
         std::cout << "  [RenderSystem] Shutting down graphics. Total frames: "
                   << frame_count_ << std::endl;

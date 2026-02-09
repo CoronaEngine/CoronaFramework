@@ -150,10 +150,22 @@ class SystemBase : public ISystem {
      * 3. 调用 update()
      * 4. 收集性能统计
      * 5. 根据 target_fps 休眠节流
-     *
-     * 派生类可以覆盖此方法以实现自定义行为
      */
-    virtual void thread_loop();
+    void thread_loop();
+
+    /**
+     * @brief 线程启动回调
+     *
+     * 在工作线程循环开始前调用。派生类可覆盖以执行线程相关的初始化。
+     */
+    virtual void on_thread_started();
+
+    /**
+     * @brief 线程停止回调
+     *
+     * 在工作线程循环结束后调用。派生类可覆盖以执行线程相关的清理。
+     */
+    virtual void on_thread_stopped();
 
    private:
     friend class SystemManager;  ///< 允许 SystemManager 设置 context
